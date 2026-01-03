@@ -22,6 +22,12 @@ import { type BreadcrumbItem } from '@/types/index.d';
 // shadcn
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -42,7 +48,9 @@ type Client = {
     email?: string | null;
     contact_person?: string | null;
 };
+
 type Template = { id: number; name: string; is_default: boolean };
+
 type Currency = {
     code: string;
     name: string;
@@ -57,27 +65,31 @@ const breadcrumbs: BreadcrumbItem[] = [
 
 type StepKey = 'details' | 'items' | 'review';
 
-const steps: { key: StepKey; title: string; description: string; icon: any }[] =
-    [
-        {
-            key: 'details',
-            title: 'Details',
-            description: 'Client, template, dates, currency, recurrence',
-            icon: ClipboardList,
-        },
-        {
-            key: 'items',
-            title: 'Items',
-            description: 'Line items and pricing',
-            icon: Receipt,
-        },
-        {
-            key: 'review',
-            title: 'Review',
-            description: 'Discount, status, preview & create',
-            icon: CheckCircle2,
-        },
-    ];
+const steps: {
+    key: StepKey;
+    title: string;
+    description: string;
+    icon: any;
+}[] = [
+    {
+        key: 'details',
+        title: 'Details',
+        description: 'Client, template, dates, currency, recurrence',
+        icon: ClipboardList,
+    },
+    {
+        key: 'items',
+        title: 'Items',
+        description: 'Line items and pricing',
+        icon: Receipt,
+    },
+    {
+        key: 'review',
+        title: 'Review',
+        description: 'Discount, status, preview & create',
+        icon: CheckCircle2,
+    },
+];
 
 type InvoiceStatus = 'pending' | 'paid';
 
@@ -97,8 +109,11 @@ export default function InvoicesCreate({
 
     const [step, setStep] = React.useState<StepKey>('details');
 
+    // ✅ Preview modal
+    const [previewOpen, setPreviewOpen] = React.useState(false);
+    const [previewHtml, setPreviewHtml] = React.useState('');
+
     const form = useForm({
-        // details
         client_id: '',
         invoice_template_id:
             templates.find((t) => t.is_default)?.id?.toString() ?? '',
@@ -109,24 +124,21 @@ export default function InvoicesCreate({
         currency_code: defaultCurrencyCode ?? activeCurrency?.code ?? 'ZMW',
         has_delivery_note: false,
 
-        // ✅ status: default pending, optional paid
+        // ✅ default pending
         status: 'pending' as InvoiceStatus,
 
-        // recurrence
         is_recurring: false,
         recurrence_frequency: 'monthly',
         recurrence_interval: 1,
         recurrence_start_date: '',
         recurrence_end_date: '',
 
-        // notes
         notes: '',
         terms: '',
 
-        // ✅ moved to Review step (still in payload)
+        // ✅ overall discount on review
         invoice_discount: 0,
 
-        // items
         items: [
             {
                 description: '',
@@ -147,6 +159,30 @@ export default function InvoicesCreate({
     }, [currencyList, form.data.currency_code, activeCurrency?.precision]);
 
     const fmt = (v: number) => (Number.isFinite(v) ? v : 0).toFixed(precision);
+
+    const computed = React.useMemo(() => {
+        let subtotal = 0;
+        let lineDiscount = 0;
+        let tax = 0;
+
+        for (const it of form.data.items) {
+            const qty = Number(it.quantity || 0);
+            const price = Number(it.unit_price || 0);
+            const disc = Number(it.discount || 0);
+            const t = Number(it.tax || 0);
+
+            subtotal += qty * price;
+            lineDiscount += disc;
+            tax += t;
+        }
+
+        const invoiceDiscount = Number(form.data.invoice_discount || 0);
+        const totalDiscount = lineDiscount + invoiceDiscount;
+
+        const total = Math.max(0, subtotal - totalDiscount + tax);
+
+        return { subtotal, lineDiscount, invoiceDiscount, tax, total };
+    }, [form.data.items, form.data.invoice_discount]);
 
     const addItem = () => {
         form.setData('items', [
@@ -187,139 +223,114 @@ export default function InvoicesCreate({
         form.setData('items', next);
     };
 
-    const computed = React.useMemo(() => {
-        let subtotal = 0;
-        let lineDiscount = 0;
-        let tax = 0;
+    const validateStep = (s: StepKey) => {
+        if (s === 'details') {
+            if (!form.data.client_id)
+                return (toast.error('Select a client.'), false);
+            if (!form.data.issue_date)
+                return (toast.error('Issue date is required.'), false);
+            if (!form.data.currency_code)
+                return (toast.error('Currency is required.'), false);
 
-        for (const it of form.data.items) {
-            const qty = Number(it.quantity || 0);
-            const price = Number(it.unit_price || 0);
-            const disc = Number(it.discount || 0);
-            const t = Number(it.tax || 0);
-
-            subtotal += qty * price;
-            lineDiscount += disc;
-            tax += t;
-        }
-
-        const invoiceDiscount = Number(form.data.invoice_discount || 0);
-        const totalDiscount = lineDiscount + invoiceDiscount;
-
-        const total = Math.max(0, subtotal - totalDiscount + tax);
-
-        return {
-            subtotal,
-            lineDiscount,
-            invoiceDiscount,
-            totalDiscount,
-            tax,
-            total,
-        };
-    }, [form.data.items, form.data.invoice_discount]);
-
-    const validateStep = () => {
-        if (step === 'details') {
-            if (!form.data.client_id) {
-                toast.error('Please select a client.');
-                return false;
-            }
-            if (!form.data.issue_date) {
-                toast.error('Issue date is required.');
-                return false;
-            }
-            if (!form.data.currency_code) {
-                toast.error('Currency is required.');
-                return false;
-            }
             if (form.data.is_recurring) {
-                if (!form.data.recurrence_frequency) {
-                    toast.error('Select a recurrence frequency.');
-                    return false;
-                }
+                if (!form.data.recurrence_frequency)
+                    return (
+                        toast.error('Select a recurrence frequency.'),
+                        false
+                    );
                 if (
                     !form.data.recurrence_interval ||
                     form.data.recurrence_interval < 1
-                ) {
-                    toast.error('Recurrence interval must be at least 1.');
-                    return false;
-                }
+                )
+                    return (
+                        toast.error('Recurrence interval must be at least 1.'),
+                        false
+                    );
             }
         }
 
-        if (step === 'items') {
+        if (s === 'items') {
             const hasValidItem = form.data.items.some(
                 (it) =>
                     (it.description || '').trim().length > 0 &&
                     Number(it.quantity) > 0 &&
                     Number(it.unit_price) >= 0,
             );
-            if (!hasValidItem) {
-                toast.error('Add at least one valid line item.');
-                return false;
-            }
+            if (!hasValidItem)
+                return (
+                    toast.error('Add at least one valid line item.'),
+                    false
+                );
         }
 
-        if (step === 'review') {
+        if (s === 'review') {
             const d = Number(form.data.invoice_discount || 0);
-            if (d < 0) {
-                toast.error('Invoice discount cannot be negative.');
-                return false;
-            }
+            if (d < 0)
+                return (
+                    toast.error('Invoice discount cannot be negative.'),
+                    false
+                );
         }
 
         return true;
     };
 
+    const order: StepKey[] = ['details', 'items', 'review'];
+
     const goNext = () => {
-        if (!validateStep()) return;
-        const order: StepKey[] = ['details', 'items', 'review'];
-        const idx = order.indexOf(step);
-        setStep(order[Math.min(idx + 1, order.length - 1)]);
+        if (!validateStep(step)) return;
+        setStep(order[Math.min(order.indexOf(step) + 1, order.length - 1)]);
     };
 
     const goBack = () => {
-        const order: StepKey[] = ['details', 'items', 'review'];
-        const idx = order.indexOf(step);
-        setStep(order[Math.max(idx - 1, 0)]);
+        setStep(order[Math.max(order.indexOf(step) - 1, 0)]);
     };
 
-    const previewTemplate = () => {
-        if (!form.data.client_id) {
-            toast.error('Select a client first.');
-            return;
-        }
-        if (!form.data.invoice_template_id) {
-            toast.error('Select a template first.');
-            return;
+    const openPreview = async () => {
+        // preview must be accurate => validate current + previous
+        const idx = order.indexOf(step);
+        for (let i = 0; i <= Math.max(idx, order.indexOf('review')); i++) {
+            if (!validateStep(order[i])) return;
         }
 
-        // ✅ Simple approach: open a preview route in a new tab
-        // Create a GET route like: /invoices/preview?client_id=&invoice_template_id=&...
-        // For now, we pass only what we need for a visual preview.
-        const qs = new URLSearchParams({
-            client_id: form.data.client_id,
-            invoice_template_id: form.data.invoice_template_id,
-            currency_code: form.data.currency_code,
-        }).toString();
+        try {
+            const res = await fetch('/invoices/preview', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN':
+                        (
+                            document.querySelector(
+                                'meta[name="csrf-token"]',
+                            ) as HTMLMetaElement
+                        )?.content ?? '',
+                },
+                body: JSON.stringify(form.data),
+            });
 
-        window.open(`/invoices/preview?${qs}`, '_blank', 'noopener,noreferrer');
+            if (!res.ok) {
+                // If your preview returns validation JSON, surface it
+                const json = await res.json().catch(() => null);
+                toast.error(json?.message || 'Preview failed.');
+                return;
+            }
+
+            const html = await res.text();
+            setPreviewHtml(html);
+            setPreviewOpen(true);
+        } catch (e) {
+            toast.error('Preview failed.');
+        }
     };
 
     const submit = () => {
-        // ensure current step valid
-        if (step !== 'review') {
-            toast.error('Please complete the review step before creating.');
-            return;
-        }
-        if (!validateStep()) return;
+        if (step !== 'review') return toast.error('Finish review first.');
+        if (!validateStep('review')) return;
 
         form.post('/invoices', {
             preserveScroll: true,
-            // ✅ crucial: makes Inertia re-fetch shared props + page props after redirect
-            preserveState: false,
-            // ✅ If your controller redirects to /invoices after store,
-            // the UI will update naturally, and onSuccess will fire.
+            preserveState: false, // ✅ ensures UI updates after redirect
             onSuccess: () => toast.success('Invoice created.'),
             onError: (errors) =>
                 toast.error(
@@ -341,153 +352,177 @@ export default function InvoicesCreate({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Create invoice" />
 
+            {/* ✅ Sticky Top Bar */}
+            <div className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
+                <div className="mx-auto flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-6">
+                    <div className="flex min-w-0 items-center gap-3">
+                        <div className="grid h-10 w-10 place-items-center rounded-2xl bg-muted">
+                            <StepIcon className="h-5 w-5 opacity-80" />
+                        </div>
+                        <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold">
+                                Create invoice
+                            </div>
+                            <div className="truncate text-xs text-muted-foreground">
+                                {steps.find((s) => s.key === step)?.title} •{' '}
+                                {steps.find((s) => s.key === step)?.description}
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={goBack}
+                            disabled={step === 'details' || form.processing}
+                            className="rounded-xl"
+                        >
+                            <ArrowLeft className="mr-2 h-4 w-4" />
+                            Back
+                        </Button>
+
+                        {step !== 'review' ? (
+                            <Button
+                                type="button"
+                                onClick={goNext}
+                                disabled={form.processing}
+                                className="rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                            >
+                                Next
+                                <ArrowRight className="ml-2 h-4 w-4" />
+                            </Button>
+                        ) : (
+                            <Button
+                                type="button"
+                                onClick={submit}
+                                disabled={form.processing}
+                                className="rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                            >
+                                Create
+                                <CheckCircle2 className="ml-2 h-4 w-4" />
+                            </Button>
+                        )}
+                    </div>
+                </div>
+            </div>
+
             <motion.div
                 initial={{ opacity: 0, y: 14 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-                className="mx-auto w-full px-4 py-10 sm:px-6"
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="mx-auto w-full px-4 py-8 sm:px-6"
             >
-                {/* Header */}
-                <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                {/* Headline */}
+                <div className="mb-6 flex items-start justify-between gap-4">
                     <div className="flex items-start gap-3">
                         <div className="grid h-11 w-11 place-items-center rounded-2xl bg-muted">
-                            <FileText className="h-6 w-6 text-foreground/80" />
+                            <FileText className="h-6 w-6 opacity-80" />
                         </div>
                         <div>
                             <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
                                 Create invoice
                             </h1>
                             <p className="mt-1 text-sm text-muted-foreground">
-                                Step-by-step flow: details → items → review.
-                                Recurring is ready for cron jobs later.
+                                Details → Items → Review. Preview before
+                                creating.
                             </p>
                         </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
-                        {step !== 'details' && (
-                            <Button
-                                type="button"
-                                variant="outline"
-                                onClick={goBack}
-                                className="gap-2 rounded-xl"
-                                disabled={form.processing}
-                            >
-                                <ArrowLeft className="h-4 w-4" />
-                                Back
-                            </Button>
-                        )}
-
-                        {step !== 'review' ? (
-                            <Button
-                                type="button"
-                                onClick={goNext}
-                                className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                                disabled={form.processing}
-                            >
-                                Next
-                                <ArrowRight className="h-4 w-4" />
-                            </Button>
-                        ) : (
-                            <Button
-                                type="button"
-                                onClick={submit}
-                                className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                                disabled={form.processing}
-                            >
-                                Create invoice
-                                <CheckCircle2 className="h-4 w-4" />
-                            </Button>
-                        )}
-                    </div>
+                    {step === 'review' && (
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={openPreview}
+                            className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                        >
+                            <Eye className="h-4 w-4" />
+                            Preview
+                        </Button>
+                    )}
                 </div>
 
-                {/* Stepper */}
-                <Card className="mb-6 rounded-2xl border bg-background p-4 shadow-sm">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="flex items-center gap-3">
-                            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-muted">
-                                <StepIcon className="h-5 w-5 text-foreground/80" />
-                            </div>
-                            <div className="min-w-0">
-                                <div className="text-sm font-semibold">
-                                    {steps.find((s) => s.key === step)?.title}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    {
-                                        steps.find((s) => s.key === step)
-                                            ?.description
-                                    }
-                                </div>
-                            </div>
-                        </div>
+                {/* Step Cards */}
+                <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    {steps.map((s) => {
+                        const Icon = s.icon;
+                        const active = s.key === step;
+                        const cur = order.indexOf(step);
+                        const target = order.indexOf(s.key);
+                        const done = target < cur;
 
-                        <div className="flex items-center gap-2">
-                            {steps.map((s, i) => {
-                                const active = s.key === step;
-                                const done =
-                                    (step === 'items' && s.key === 'details') ||
-                                    (step === 'review' &&
-                                        (s.key === 'details' ||
-                                            s.key === 'items'));
-
-                                return (
-                                    <button
-                                        key={s.key}
-                                        type="button"
-                                        onClick={() => {
-                                            const order: StepKey[] = [
-                                                'details',
-                                                'items',
-                                                'review',
-                                            ];
-                                            const cur = order.indexOf(step);
-                                            const target = order.indexOf(s.key);
-
-                                            // backward freely
-                                            if (target <= cur) {
-                                                setStep(s.key);
-                                                return;
-                                            }
-
-                                            // forward requires current step valid
-                                            if (!validateStep()) return;
-                                            setStep(s.key);
-                                        }}
+                        return (
+                            <button
+                                key={s.key}
+                                type="button"
+                                onClick={() => {
+                                    // back freely
+                                    if (target <= cur) return setStep(s.key);
+                                    // forward requires current step valid
+                                    if (!validateStep(step)) return;
+                                    setStep(s.key);
+                                }}
+                                className={cn(
+                                    'rounded-2xl border bg-background p-4 text-left shadow-sm transition',
+                                    'hover:bg-muted/20',
+                                    active &&
+                                        'border-foreground/20 bg-muted/20',
+                                )}
+                            >
+                                <div className="flex items-start gap-3">
+                                    <div
                                         className={cn(
-                                            'flex items-center gap-2 rounded-xl border px-3 py-2 text-sm transition',
-                                            'hover:bg-muted/40',
-                                            active && 'bg-muted/60',
+                                            'grid h-10 w-10 place-items-center rounded-2xl',
+                                            done
+                                                ? 'bg-foreground text-background'
+                                                : active
+                                                  ? 'bg-foreground/90 text-background'
+                                                  : 'bg-muted',
                                         )}
                                     >
-                                        <span
-                                            className={cn(
-                                                'grid h-6 w-6 place-items-center rounded-lg text-xs font-semibold',
-                                                done
-                                                    ? 'bg-foreground text-background'
-                                                    : active
-                                                      ? 'bg-foreground/90 text-background'
-                                                      : 'bg-muted text-foreground/70',
-                                            )}
-                                        >
-                                            {done ? (
-                                                <CheckCircle2 className="h-4 w-4" />
-                                            ) : (
-                                                i + 1
-                                            )}
-                                        </span>
-                                        <span className="hidden sm:inline">
-                                            {s.title}
-                                        </span>
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    </div>
+                                        <Icon className="h-5 w-5 opacity-90" />
+                                    </div>
 
-                    <Separator className="my-4" />
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="text-sm font-semibold">
+                                                {s.title}
+                                            </div>
+                                            {done && (
+                                                <CheckCircle2 className="h-4 w-4 opacity-70" />
+                                            )}
+                                        </div>
+                                        <div className="mt-1 text-xs text-muted-foreground">
+                                            {s.description}
+                                        </div>
 
-                    {/* Totals preview (always visible) */}
+                                        <div className="mt-3 h-[2px] w-full overflow-hidden rounded-full bg-muted">
+                                            <motion.div
+                                                initial={false}
+                                                animate={{
+                                                    width: done
+                                                        ? '100%'
+                                                        : active
+                                                          ? '66%'
+                                                          : '0%',
+                                                }}
+                                                transition={{
+                                                    duration: 0.25,
+                                                    ease: 'easeOut',
+                                                }}
+                                                className="h-full bg-foreground/80"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Totals Strip */}
+                <Card className="mb-6 rounded-2xl border bg-background p-4 shadow-sm">
                     <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
                         <MiniStat
                             label="Subtotal"
@@ -521,13 +556,12 @@ export default function InvoicesCreate({
                 <form
                     onSubmit={(e) => {
                         e.preventDefault();
-                        if (step === 'review') submit();
-                        else goNext();
+                        step === 'review' ? submit() : goNext();
                     }}
-                    className="grid grid-cols-1 gap-6"
+                    className="space-y-6"
                 >
                     <AnimatePresence mode="wait">
-                        {/* STEP 1: DETAILS */}
+                        {/* DETAILS */}
                         {step === 'details' && (
                             <motion.div
                                 key="details"
@@ -538,16 +572,13 @@ export default function InvoicesCreate({
                                 className="grid grid-cols-1 gap-6 lg:grid-cols-12"
                             >
                                 <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-7">
-                                    <div className="mb-4 flex items-center gap-2">
-                                        <ClipboardList className="h-5 w-5 opacity-80" />
-                                        <div className="text-sm font-semibold">
-                                            Invoice details
-                                        </div>
-                                    </div>
+                                    <SectionTitle
+                                        icon={ClipboardList}
+                                        title="Invoice details"
+                                    />
 
-                                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                        <div className="space-y-2">
-                                            <Label>Client *</Label>
+                                    <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                        <Field label="Client *">
                                             <Select
                                                 value={form.data.client_id}
                                                 onValueChange={(v) =>
@@ -569,14 +600,13 @@ export default function InvoicesCreate({
                                                 </SelectContent>
                                             </Select>
                                             {form.errors.client_id && (
-                                                <p className="text-sm text-destructive">
+                                                <p className="mt-1 text-sm text-destructive">
                                                     {form.errors.client_id}
                                                 </p>
                                             )}
-                                        </div>
+                                        </Field>
 
-                                        <div className="space-y-2">
-                                            <Label>Template</Label>
+                                        <Field label="Template">
                                             <Select
                                                 value={
                                                     form.data
@@ -606,19 +636,9 @@ export default function InvoicesCreate({
                                                     ))}
                                                 </SelectContent>
                                             </Select>
-                                            {form.errors
-                                                .invoice_template_id && (
-                                                <p className="text-sm text-destructive">
-                                                    {
-                                                        form.errors
-                                                            .invoice_template_id
-                                                    }
-                                                </p>
-                                            )}
-                                        </div>
+                                        </Field>
 
-                                        <div className="space-y-2">
-                                            <Label>Issue date *</Label>
+                                        <Field label="Issue date *">
                                             <Input
                                                 type="date"
                                                 value={form.data.issue_date}
@@ -631,10 +651,9 @@ export default function InvoicesCreate({
                                                 className="rounded-xl"
                                                 required
                                             />
-                                        </div>
+                                        </Field>
 
-                                        <div className="space-y-2">
-                                            <Label>Due date</Label>
+                                        <Field label="Due date">
                                             <Input
                                                 type="date"
                                                 value={form.data.due_date}
@@ -646,10 +665,12 @@ export default function InvoicesCreate({
                                                 }
                                                 className="rounded-xl"
                                             />
-                                        </div>
+                                        </Field>
 
-                                        <div className="space-y-2 sm:col-span-2">
-                                            <Label>Currency *</Label>
+                                        <Field
+                                            label="Currency *"
+                                            className="sm:col-span-2"
+                                        >
                                             <Select
                                                 value={form.data.currency_code}
                                                 onValueChange={(v) =>
@@ -673,10 +694,9 @@ export default function InvoicesCreate({
                                                     ))}
                                                 </SelectContent>
                                             </Select>
-                                        </div>
+                                        </Field>
 
-                                        <div className="space-y-2">
-                                            <Label>Title</Label>
+                                        <Field label="Title">
                                             <Input
                                                 value={form.data.title}
                                                 onChange={(e) =>
@@ -688,10 +708,9 @@ export default function InvoicesCreate({
                                                 className="rounded-xl"
                                                 placeholder="Optional invoice title"
                                             />
-                                        </div>
+                                        </Field>
 
-                                        <div className="space-y-2">
-                                            <Label>Reference</Label>
+                                        <Field label="Reference">
                                             <Input
                                                 value={form.data.reference}
                                                 onChange={(e) =>
@@ -703,12 +722,12 @@ export default function InvoicesCreate({
                                                 className="rounded-xl"
                                                 placeholder="PO / Reference"
                                             />
-                                        </div>
+                                        </Field>
                                     </div>
 
                                     <Separator className="my-6" />
 
-                                    <div className="flex items-center justify-between rounded-xl border p-4">
+                                    <div className="flex items-center justify-between rounded-2xl border p-4">
                                         <div>
                                             <div className="text-sm font-semibold">
                                                 Delivery note
@@ -734,8 +753,7 @@ export default function InvoicesCreate({
                                     <Separator className="my-6" />
 
                                     <div className="grid grid-cols-1 gap-4">
-                                        <div className="space-y-2">
-                                            <Label>Notes</Label>
+                                        <Field label="Notes">
                                             <Textarea
                                                 value={form.data.notes}
                                                 onChange={(e) =>
@@ -746,10 +764,8 @@ export default function InvoicesCreate({
                                                 }
                                                 className="min-h-[90px] rounded-xl"
                                             />
-                                        </div>
-
-                                        <div className="space-y-2">
-                                            <Label>Terms</Label>
+                                        </Field>
+                                        <Field label="Terms">
                                             <Textarea
                                                 value={form.data.terms}
                                                 onChange={(e) =>
@@ -760,19 +776,17 @@ export default function InvoicesCreate({
                                                 }
                                                 className="min-h-[90px] rounded-xl"
                                             />
-                                        </div>
+                                        </Field>
                                     </div>
                                 </Card>
 
                                 <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-5">
-                                    <div className="mb-4 flex items-center gap-2">
-                                        <CalendarClock className="h-5 w-5 opacity-80" />
-                                        <div className="text-sm font-semibold">
-                                            Recurrence
-                                        </div>
-                                    </div>
+                                    <SectionTitle
+                                        icon={CalendarClock}
+                                        title="Recurrence"
+                                    />
 
-                                    <div className="flex items-center justify-between rounded-xl border p-4">
+                                    <div className="mt-4 flex items-center justify-between rounded-2xl border p-4">
                                         <div>
                                             <div className="text-sm font-semibold">
                                                 Recurring invoice
@@ -794,8 +808,10 @@ export default function InvoicesCreate({
 
                                     {form.data.is_recurring && (
                                         <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                            <div className="space-y-2 sm:col-span-2">
-                                                <Label>Frequency *</Label>
+                                            <Field
+                                                label="Frequency *"
+                                                className="sm:col-span-2"
+                                            >
                                                 <Select
                                                     value={
                                                         form.data
@@ -826,10 +842,9 @@ export default function InvoicesCreate({
                                                         </SelectItem>
                                                     </SelectContent>
                                                 </Select>
-                                            </div>
+                                            </Field>
 
-                                            <div className="space-y-2">
-                                                <Label>Interval *</Label>
+                                            <Field label="Interval *">
                                                 <Input
                                                     type="number"
                                                     min={1}
@@ -847,10 +862,9 @@ export default function InvoicesCreate({
                                                     }
                                                     className="rounded-xl"
                                                 />
-                                            </div>
+                                            </Field>
 
-                                            <div className="space-y-2">
-                                                <Label>Start date</Label>
+                                            <Field label="Start date">
                                                 <Input
                                                     type="date"
                                                     value={
@@ -865,10 +879,9 @@ export default function InvoicesCreate({
                                                     }
                                                     className="rounded-xl"
                                                 />
-                                            </div>
+                                            </Field>
 
-                                            <div className="space-y-2">
-                                                <Label>End date</Label>
+                                            <Field label="End date">
                                                 <Input
                                                     type="date"
                                                     value={
@@ -883,14 +896,14 @@ export default function InvoicesCreate({
                                                     }
                                                     className="rounded-xl"
                                                 />
-                                            </div>
+                                            </Field>
                                         </div>
                                     )}
                                 </Card>
                             </motion.div>
                         )}
 
-                        {/* STEP 2: ITEMS */}
+                        {/* ITEMS */}
                         {step === 'items' && (
                             <motion.div
                                 key="items"
@@ -901,14 +914,11 @@ export default function InvoicesCreate({
                                 className="grid grid-cols-1 gap-6 lg:grid-cols-12"
                             >
                                 <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-8">
-                                    <div className="mb-4 flex items-center justify-between gap-3">
-                                        <div className="flex items-center gap-2">
-                                            <Receipt className="h-5 w-5 opacity-80" />
-                                            <div className="text-sm font-semibold">
-                                                Line items
-                                            </div>
-                                        </div>
-
+                                    <div className="flex items-center justify-between gap-3">
+                                        <SectionTitle
+                                            icon={Receipt}
+                                            title="Line items"
+                                        />
                                         <Button
                                             type="button"
                                             variant="outline"
@@ -920,13 +930,13 @@ export default function InvoicesCreate({
                                         </Button>
                                     </div>
 
-                                    <div className="space-y-4">
+                                    <div className="mt-4 space-y-4">
                                         {form.data.items.map((it, idx) => (
                                             <motion.div
                                                 key={idx}
                                                 initial={{ opacity: 0, y: 10 }}
                                                 animate={{ opacity: 1, y: 0 }}
-                                                transition={{ duration: 0.2 }}
+                                                transition={{ duration: 0.18 }}
                                                 className="rounded-2xl border p-4"
                                             >
                                                 <div className="flex items-start justify-between gap-2">
@@ -947,10 +957,7 @@ export default function InvoicesCreate({
                                                 </div>
 
                                                 <div className="mt-3 space-y-3">
-                                                    <div className="space-y-2">
-                                                        <Label>
-                                                            Description *
-                                                        </Label>
+                                                    <Field label="Description *">
                                                         <Input
                                                             value={
                                                                 it.description
@@ -966,11 +973,10 @@ export default function InvoicesCreate({
                                                             className="rounded-xl"
                                                             required
                                                         />
-                                                    </div>
+                                                    </Field>
 
                                                     <div className="grid grid-cols-2 gap-3">
-                                                        <div className="space-y-2">
-                                                            <Label>Qty *</Label>
+                                                        <Field label="Qty *">
                                                             <Input
                                                                 type="number"
                                                                 min={0.01}
@@ -991,12 +997,9 @@ export default function InvoicesCreate({
                                                                 }
                                                                 className="rounded-xl"
                                                             />
-                                                        </div>
+                                                        </Field>
 
-                                                        <div className="space-y-2">
-                                                            <Label>
-                                                                Unit price *
-                                                            </Label>
+                                                        <Field label="Unit price *">
                                                             <Input
                                                                 type="number"
                                                                 min={0}
@@ -1017,12 +1020,9 @@ export default function InvoicesCreate({
                                                                 }
                                                                 className="rounded-xl"
                                                             />
-                                                        </div>
+                                                        </Field>
 
-                                                        <div className="space-y-2">
-                                                            <Label>
-                                                                Discount
-                                                            </Label>
+                                                        <Field label="Discount">
                                                             <Input
                                                                 type="number"
                                                                 min={0}
@@ -1043,10 +1043,9 @@ export default function InvoicesCreate({
                                                                 }
                                                                 className="rounded-xl"
                                                             />
-                                                        </div>
+                                                        </Field>
 
-                                                        <div className="space-y-2">
-                                                            <Label>Tax</Label>
+                                                        <Field label="Tax">
                                                             <Input
                                                                 type="number"
                                                                 min={0}
@@ -1065,7 +1064,7 @@ export default function InvoicesCreate({
                                                                 }
                                                                 className="rounded-xl"
                                                             />
-                                                        </div>
+                                                        </Field>
                                                     </div>
                                                 </div>
                                             </motion.div>
@@ -1074,11 +1073,11 @@ export default function InvoicesCreate({
                                 </Card>
 
                                 <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-4">
-                                    <div className="mb-2 text-sm font-semibold">
-                                        Totals
-                                    </div>
-
-                                    <div className="space-y-2 rounded-2xl border bg-muted/20 p-4">
+                                    <SectionTitle
+                                        icon={BadgePercent}
+                                        title="Totals (preview)"
+                                    />
+                                    <div className="mt-4 space-y-2 rounded-2xl border bg-muted/20 p-4">
                                         <Row
                                             label="Subtotal"
                                             value={computed.subtotal}
@@ -1096,13 +1095,12 @@ export default function InvoicesCreate({
                                         />
                                         <Separator className="my-2" />
                                         <Row
-                                            label="Total (preview)"
+                                            label="Total"
                                             value={computed.total}
                                             precision={precision}
                                             strong
                                         />
                                     </div>
-
                                     <div className="mt-4 text-xs text-muted-foreground">
                                         Overall invoice discount is applied on
                                         the review step.
@@ -1111,7 +1109,7 @@ export default function InvoicesCreate({
                             </motion.div>
                         )}
 
-                        {/* STEP 3: REVIEW */}
+                        {/* REVIEW */}
                         {step === 'review' && (
                             <motion.div
                                 key="review"
@@ -1122,26 +1120,23 @@ export default function InvoicesCreate({
                                 className="grid grid-cols-1 gap-6 lg:grid-cols-12"
                             >
                                 <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-8">
-                                    <div className="mb-4 flex items-center justify-between gap-3">
-                                        <div className="flex items-center gap-2">
-                                            <CheckCircle2 className="h-5 w-5 opacity-80" />
-                                            <div className="text-sm font-semibold">
-                                                Review
-                                            </div>
-                                        </div>
-
+                                    <div className="flex items-center justify-between gap-3">
+                                        <SectionTitle
+                                            icon={CheckCircle2}
+                                            title="Review"
+                                        />
                                         <Button
                                             type="button"
                                             variant="outline"
-                                            onClick={previewTemplate}
+                                            onClick={openPreview}
                                             className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
                                         >
                                             <Eye className="h-4 w-4" />
-                                            View template preview
+                                            Preview invoice
                                         </Button>
                                     </div>
 
-                                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                    <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
                                         <ReviewField
                                             label="Client"
                                             value={clientLabel(
@@ -1192,26 +1187,24 @@ export default function InvoicesCreate({
 
                                     <Separator className="my-6" />
 
-                                    {/* ✅ Overall discount now on review */}
                                     <div className="rounded-2xl border p-4">
-                                        <div className="mb-3 flex items-start gap-3">
+                                        <div className="flex items-start gap-3">
                                             <div className="grid h-10 w-10 place-items-center rounded-2xl bg-muted">
                                                 <BadgePercent className="h-5 w-5 opacity-80" />
                                             </div>
                                             <div className="min-w-0">
                                                 <div className="text-sm font-semibold">
-                                                    Overall invoice discount
+                                                    Final adjustments
                                                 </div>
                                                 <div className="text-xs text-muted-foreground">
-                                                    Added on top of line-item
-                                                    discounts.
+                                                    Overall discount + invoice
+                                                    status.
                                                 </div>
                                             </div>
                                         </div>
 
-                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                            <div className="space-y-2">
-                                                <Label>Discount amount</Label>
+                                        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                            <Field label="Overall discount">
                                                 <Input
                                                     type="number"
                                                     min={0}
@@ -1230,31 +1223,60 @@ export default function InvoicesCreate({
                                                     }
                                                     className="rounded-xl"
                                                 />
-                                            </div>
+                                            </Field>
 
                                             <div className="space-y-2">
-                                                <Label>Invoice status</Label>
-                                                <Select
-                                                    value={form.data.status}
-                                                    onValueChange={(v) =>
-                                                        form.setData(
-                                                            'status',
-                                                            v as InvoiceStatus,
-                                                        )
-                                                    }
-                                                >
-                                                    <SelectTrigger className="rounded-xl">
-                                                        <SelectValue placeholder="Select status" />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="pending">
-                                                            Pending (default)
-                                                        </SelectItem>
-                                                        <SelectItem value="paid">
-                                                            Paid
-                                                        </SelectItem>
-                                                    </SelectContent>
-                                                </Select>
+                                                <Label>Status</Label>
+                                                <div className="flex gap-2">
+                                                    <StatusPill
+                                                        active={
+                                                            form.data.status ===
+                                                            'pending'
+                                                        }
+                                                        onClick={() =>
+                                                            form.setData(
+                                                                'status',
+                                                                'pending',
+                                                            )
+                                                        }
+                                                        label="Pending"
+                                                    />
+                                                    <StatusPill
+                                                        active={
+                                                            form.data.status ===
+                                                            'paid'
+                                                        }
+                                                        onClick={() =>
+                                                            form.setData(
+                                                                'status',
+                                                                'paid',
+                                                            )
+                                                        }
+                                                        label="Paid"
+                                                    />
+                                                </div>
+                                                {/* keep Select for accessibility / form consistency */}
+                                                <div className="hidden">
+                                                    <Select
+                                                        value={form.data.status}
+                                                        onValueChange={(v) =>
+                                                            form.setData(
+                                                                'status',
+                                                                v as InvoiceStatus,
+                                                            )
+                                                        }
+                                                    >
+                                                        <SelectTrigger />
+                                                        <SelectContent>
+                                                            <SelectItem value="pending">
+                                                                Pending
+                                                            </SelectItem>
+                                                            <SelectItem value="paid">
+                                                                Paid
+                                                            </SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
+                                                </div>
                                                 {form.errors.status && (
                                                     <p className="text-sm text-destructive">
                                                         {form.errors.status}
@@ -1266,87 +1288,88 @@ export default function InvoicesCreate({
 
                                     <Separator className="my-6" />
 
-                                    <div className="space-y-3">
-                                        <div className="text-sm font-semibold">
-                                            Items
+                                    <div className="text-sm font-semibold">
+                                        Items
+                                    </div>
+                                    <div className="mt-3 rounded-2xl border">
+                                        <div className="grid grid-cols-12 gap-2 border-b bg-muted/40 px-4 py-3 text-xs font-semibold text-muted-foreground">
+                                            <div className="col-span-6">
+                                                Description
+                                            </div>
+                                            <div className="col-span-2 text-right">
+                                                Qty
+                                            </div>
+                                            <div className="col-span-2 text-right">
+                                                Price
+                                            </div>
+                                            <div className="col-span-2 text-right">
+                                                Line
+                                            </div>
                                         </div>
 
-                                        <div className="rounded-2xl border">
-                                            <div className="grid grid-cols-12 gap-2 border-b bg-muted/40 px-4 py-3 text-xs font-semibold text-muted-foreground">
-                                                <div className="col-span-6">
-                                                    Description
-                                                </div>
-                                                <div className="col-span-2 text-right">
-                                                    Qty
-                                                </div>
-                                                <div className="col-span-2 text-right">
-                                                    Price
-                                                </div>
-                                                <div className="col-span-2 text-right">
-                                                    Line
-                                                </div>
-                                            </div>
+                                        <div className="divide-y">
+                                            {form.data.items.map((it, idx) => {
+                                                const qty = Number(
+                                                    it.quantity || 0,
+                                                );
+                                                const price = Number(
+                                                    it.unit_price || 0,
+                                                );
+                                                const disc = Number(
+                                                    it.discount || 0,
+                                                );
+                                                const tax = Number(it.tax || 0);
+                                                const base = qty * price;
+                                                const line = Math.max(
+                                                    0,
+                                                    base - disc + tax,
+                                                );
 
-                                            <div className="divide-y">
-                                                {form.data.items.map(
-                                                    (it, idx) => {
-                                                        const qty = Number(
-                                                            it.quantity || 0,
-                                                        );
-                                                        const price = Number(
-                                                            it.unit_price || 0,
-                                                        );
-                                                        const disc = Number(
-                                                            it.discount || 0,
-                                                        );
-                                                        const tax = Number(
-                                                            it.tax || 0,
-                                                        );
-                                                        const base =
-                                                            qty * price;
-                                                        const line = Math.max(
-                                                            0,
-                                                            base - disc + tax,
-                                                        );
-
-                                                        return (
-                                                            <div
-                                                                key={idx}
-                                                                className="grid grid-cols-12 gap-2 px-4 py-3 text-sm"
-                                                            >
-                                                                <div className="col-span-6 min-w-0">
-                                                                    <div className="truncate font-medium">
-                                                                        {it.description ||
-                                                                            '—'}
-                                                                    </div>
-                                                                </div>
-                                                                <div className="col-span-2 text-right">
-                                                                    {fmt(qty)}
-                                                                </div>
-                                                                <div className="col-span-2 text-right">
-                                                                    {fmt(price)}
-                                                                </div>
-                                                                <div className="col-span-2 text-right font-semibold">
-                                                                    {fmt(line)}
-                                                                </div>
+                                                return (
+                                                    <div
+                                                        key={idx}
+                                                        className="grid grid-cols-12 gap-2 px-4 py-3 text-sm"
+                                                    >
+                                                        <div className="col-span-6 min-w-0">
+                                                            <div className="truncate font-medium">
+                                                                {it.description ||
+                                                                    '—'}
                                                             </div>
-                                                        );
-                                                    },
-                                                )}
-                                            </div>
+                                                        </div>
+                                                        <div className="col-span-2 text-right">
+                                                            {fmt(qty)}
+                                                        </div>
+                                                        <div className="col-span-2 text-right">
+                                                            {fmt(price)}
+                                                        </div>
+                                                        <div className="col-span-2 text-right font-semibold">
+                                                            {fmt(line)}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </Card>
 
                                 <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-4">
-                                    <div className="mb-4 flex items-center gap-2">
-                                        <BadgePercent className="h-5 w-5 opacity-80" />
-                                        <div className="text-sm font-semibold">
-                                            Final totals
-                                        </div>
+                                    <div className="flex items-center justify-between">
+                                        <SectionTitle
+                                            icon={BadgePercent}
+                                            title="Final totals"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            onClick={openPreview}
+                                            className="gap-2 rounded-xl"
+                                        >
+                                            <Eye className="h-4 w-4" />
+                                            Preview
+                                        </Button>
                                     </div>
 
-                                    <div className="space-y-2 rounded-2xl border bg-muted/20 p-4">
+                                    <div className="mt-4 space-y-2 rounded-2xl border bg-muted/20 p-4">
                                         <Row
                                             label="Subtotal"
                                             value={computed.subtotal}
@@ -1380,65 +1403,65 @@ export default function InvoicesCreate({
                                         type="button"
                                         onClick={submit}
                                         disabled={form.processing}
-                                        className={cn(
-                                            'mt-4 w-full gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]',
-                                        )}
+                                        className="mt-4 w-full gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
                                     >
                                         Create invoice
                                         <CheckCircle2 className="h-4 w-4" />
                                     </Button>
-
-                                    <div className="mt-3 text-xs text-muted-foreground">
-                                        If you’re not seeing success feedback/UI
-                                        updates: make sure your{' '}
-                                        <span className="font-medium">
-                                            store()
-                                        </span>{' '}
-                                        returns an Inertia redirect (not JSON).
-                                    </div>
                                 </Card>
                             </motion.div>
                         )}
                     </AnimatePresence>
-
-                    {/* Mobile nav */}
-                    <div className="flex items-center justify-between gap-2 lg:hidden">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={goBack}
-                            disabled={step === 'details' || form.processing}
-                            className="gap-2 rounded-xl"
-                        >
-                            <ArrowLeft className="h-4 w-4" />
-                            Back
-                        </Button>
-
-                        {step !== 'review' ? (
-                            <Button
-                                type="button"
-                                onClick={goNext}
-                                disabled={form.processing}
-                                className="gap-2 rounded-xl"
-                            >
-                                Next
-                                <ArrowRight className="h-4 w-4" />
-                            </Button>
-                        ) : (
-                            <Button
-                                type="button"
-                                onClick={submit}
-                                disabled={form.processing}
-                                className="gap-2 rounded-xl"
-                            >
-                                Create
-                                <CheckCircle2 className="h-4 w-4" />
-                            </Button>
-                        )}
-                    </div>
                 </form>
             </motion.div>
+
+            {/* ✅ Preview Modal */}
+            <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
+                <DialogContent className="max-w-6xl rounded-2xl p-0">
+                    <DialogHeader className="px-5 pt-5">
+                        <DialogTitle className="flex items-center gap-2">
+                            <Eye className="h-5 w-5 opacity-80" />
+                            Invoice preview
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="h-[78vh] px-5 pb-5">
+                        <iframe
+                            title="Invoice preview"
+                            className="h-full w-full rounded-2xl border bg-white"
+                            srcDoc={previewHtml}
+                        />
+                    </div>
+                </DialogContent>
+            </Dialog>
         </AppLayout>
+    );
+}
+
+/* ---------- UI helpers ---------- */
+
+function SectionTitle({ icon: Icon, title }: { icon: any; title: string }) {
+    return (
+        <div className="flex items-center gap-2">
+            <Icon className="h-5 w-5 opacity-80" />
+            <div className="text-sm font-semibold">{title}</div>
+        </div>
+    );
+}
+
+function Field({
+    label,
+    children,
+    className,
+}: {
+    label: string;
+    children: React.ReactNode;
+    className?: string;
+}) {
+    return (
+        <div className={cn('space-y-2', className)}>
+            <Label>{label}</Label>
+            {children}
+        </div>
     );
 }
 
@@ -1497,6 +1520,31 @@ function ReviewField({ label, value }: { label: string; value: string }) {
             <div className="text-xs text-muted-foreground">{label}</div>
             <div className="mt-1 text-sm font-semibold capitalize">{value}</div>
         </div>
+    );
+}
+
+function StatusPill({
+    active,
+    onClick,
+    label,
+}: {
+    active: boolean;
+    onClick: () => void;
+    label: string;
+}) {
+    return (
+        <button
+            type="button"
+            onClick={onClick}
+            className={cn(
+                'rounded-full border px-3 py-2 text-xs font-semibold transition',
+                active
+                    ? 'border-foreground bg-foreground text-background'
+                    : 'bg-background hover:bg-muted/40',
+            )}
+        >
+            {label}
+        </button>
     );
 }
 

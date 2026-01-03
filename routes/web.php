@@ -22,13 +22,46 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('companies/switch', [\App\Http\Controllers\CompanyController::class, 'switch'])->name('companies.switch');
     Route::post('/companies', [CompanyController::class, 'store']);
     // Invoice management
-    Route::get('invoices', [\App\Http\Controllers\InvoiceController::class, 'index'])->name('invoices.index');
-    Route::get('invoices/create', [\App\Http\Controllers\InvoiceController::class, 'create'])->name('invoices.create');
-    Route::post('/invoices', [InvoiceController::class, 'store']);
-    Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
-    Route::get('/invoices/{invoice}/edit', [InvoiceController::class, 'edit']);
-    Route::put('/invoices/{invoice}', [InvoiceController::class, 'update']);
-    Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy']);
+   Route::prefix('invoices')->name('invoices.')->group(function () {
+    Route::get('/', [InvoiceController::class, 'index'])->name('index');
+    Route::get('/create', [InvoiceController::class, 'create'])->name('create');
+    Route::post('/', [InvoiceController::class, 'store'])->name('store');
+
+    // ✅ Preview BEFORE saving (HTML) — avoids the "preview" bigint bug
+    // Your UI can: window.open(route('invoices.preview.new', qs), '_blank')
+    Route::get('/preview', [InvoiceController::class, 'previewNew'])->name('preview.new');
+
+    // ✅ Saved invoice routes
+    Route::get('/{invoice}', [InvoiceController::class, 'show'])
+        ->whereNumber('invoice')
+        ->name('show');
+
+    Route::get('/{invoice}/edit', [InvoiceController::class, 'edit'])
+        ->whereNumber('invoice')
+        ->name('edit');
+
+    Route::put('/{invoice}', [InvoiceController::class, 'update'])
+        ->whereNumber('invoice')
+        ->name('update');
+
+    Route::delete('/{invoice}', [InvoiceController::class, 'destroy'])
+        ->whereNumber('invoice')
+        ->name('destroy');
+
+    // ✅ Actions on saved invoice
+    Route::post('/{invoice}/status', [InvoiceController::class, 'updateStatus'])
+        ->whereNumber('invoice')
+        ->name('status');
+
+    Route::get('/{invoice}/preview', [InvoiceController::class, 'preview'])
+        ->whereNumber('invoice')
+        ->name('preview');
+
+    Route::get('/{invoice}/print', [InvoiceController::class, 'print'])
+        ->whereNumber('invoice')
+        ->name('print');
+});
+
     // Quotation management
     Route::get('quotations', [\App\Http\Controllers\QuotationController::class, 'index'])->name('quotations.index');
     Route::get('quotations/create', [\App\Http\Controllers\QuotationController::class, 'create'])->name('quotations.create');

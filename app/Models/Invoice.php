@@ -57,6 +57,10 @@ class Invoice extends Model
         return $this->belongsTo(Company::class);
     }
 
+   public function template()
+{
+    return $this->belongsTo(InvoiceTemplate::class, 'template_id');
+}
     /**
      * The client this invoice is for.
      */

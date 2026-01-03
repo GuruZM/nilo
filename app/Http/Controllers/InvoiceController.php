@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Http\Controllers;
-
+use Illuminate\Support\Facades\View;
 use App\Models\Client;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
@@ -11,7 +11,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Models\Currency;
 use Inertia\Inertia;
+use Barryvdh\DomPDF\Facade\Pdf;
 
 class InvoiceController extends Controller
 {
@@ -52,6 +54,159 @@ class InvoiceController extends Controller
         ]);
     }
 
+    public function previewNew(Request $request)
+{
+    $companyId = $this->companyId($request);
+    $user = $request->user();
+
+    $data = $request->validate([
+        'client_id' => ['required', 'integer', Rule::exists('clients', 'id')],
+        'invoice_template_id' => ['nullable', 'integer', Rule::exists('invoice_templates', 'id')],
+        'title' => ['nullable', 'string', 'max:190'],
+        'reference' => ['nullable', 'string', 'max:190'],
+        'issue_date' => ['required', 'date'],
+        'due_date' => ['nullable', 'date', 'after_or_equal:issue_date'],
+        'currency_code' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')],
+        'status' => ['required', Rule::in(['pending', 'paid'])],
+        'notes' => ['nullable', 'string'],
+        'terms' => ['nullable', 'string'],
+        'overall_discount' => ['nullable', 'numeric', 'min:0'],
+
+        'items' => ['required', 'array', 'min:1'],
+        'items.*.description' => ['required', 'string', 'max:255'],
+        'items.*.unit' => ['nullable', 'string', 'max:50'],
+        'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
+        'items.*.unit_price' => ['required', 'numeric', 'min:0'],
+        'items.*.discount' => ['nullable', 'numeric', 'min:0'],
+        'items.*.tax' => ['nullable', 'numeric', 'min:0'],
+    ]);
+
+    $client = Client::query()
+        ->where('id', (int) $data['client_id'])
+        ->where('company_id', $companyId)
+        ->first();
+
+    if (! $client) {
+        throw ValidationException::withMessages([
+            'client_id' => 'That client is not in the active company.',
+        ]);
+    }
+
+    $template = null;
+    if (! empty($data['invoice_template_id'])) {
+        $template = InvoiceTemplate::query()
+            ->where('id', (int) $data['invoice_template_id'])
+            ->where('company_id', $companyId)
+            ->first();
+
+        if (! $template) {
+            throw ValidationException::withMessages([
+                'invoice_template_id' => 'That template is not in the active company.',
+            ]);
+        }
+    }
+
+    $currency = Currency::query()
+        ->where('code', strtoupper($data['currency_code']))
+        ->first();
+
+    // totals
+    $subtotal = 0.0;
+    $discountTotal = 0.0;
+    $taxTotal = 0.0;
+
+    $items = $data['items'];
+    foreach ($items as $i => $row) {
+        $qty = (float) $row['quantity'];
+        $price = (float) $row['unit_price'];
+        $disc = (float) ($row['discount'] ?? 0);
+        $tax = (float) ($row['tax'] ?? 0);
+
+        $lineBase = $qty * $price;
+        $lineTotal = max(0, $lineBase - $disc + $tax);
+
+        $items[$i]['discount'] = $disc;
+        $items[$i]['tax'] = $tax;
+        $items[$i]['line_total'] = $lineTotal;
+        $items[$i]['sort_order'] = $i;
+
+        $subtotal += $lineBase;
+        $discountTotal += $disc;
+        $taxTotal += $tax;
+    }
+
+    $overallDiscount = (float) ($data['overall_discount'] ?? 0);
+    $total = max(0, $subtotal - $discountTotal - $overallDiscount + $taxTotal);
+
+    $company = $user->companies()
+        ->where('companies.id', $companyId)
+        ->first(['companies.id','companies.name']);
+
+    // ✅ IMPORTANT: point to a real blade view that exists
+    // resources/views/invoices/templates/default.blade.php
+    $view = $template?->view_path ?? 'invoices.templates.default';
+
+    $html = View::make($view, [
+        'company' => $company,
+        'client' => $client,
+        'template' => $template,
+        'currency' => $currency,
+        'invoice' => [
+            'number' => 'PREVIEW',
+            'title' => $data['title'] ?? null,
+            'reference' => $data['reference'] ?? null,
+            'issue_date' => $data['issue_date'],
+            'due_date' => $data['due_date'] ?? null,
+            'status' => $data['status'],
+            'notes' => $data['notes'] ?? null,
+            'terms' => $data['terms'] ?? null,
+            'overall_discount' => $overallDiscount,
+            'subtotal' => $subtotal,
+            'discount_total' => $discountTotal,
+            'tax_total' => $taxTotal,
+            'total' => $total,
+        ],
+        'items' => $items,
+        'mode' => 'preview',
+    ])->render();
+
+    return response($html);
+}
+
+public function updateStatus(Request $request, Invoice $invoice)
+{
+    $companyId = $this->companyId($request);
+
+    // ✅ Ensure invoice belongs to active company
+    if ((int) $invoice->company_id !== (int) $companyId) {
+        throw ValidationException::withMessages([
+            'invoice' => 'Invoice not found in the active company.',
+        ]);
+    }
+
+    $data = $request->validate([
+        'status' => ['required', 'string', Rule::in(['pending', 'paid'])],
+    ]);
+
+    // ✅ No-op protection
+    if ($invoice->status === $data['status']) {
+        return back()->with('info', 'Invoice status is already set to ' . $data['status'] . '.');
+    }
+
+    $update = ['status' => $data['status']];
+
+    // ✅ Optional: paid_at support if you added the column
+    if ($data['status'] === 'paid') {
+        $update['paid_at'] = now();
+    } else {
+        $update['paid_at'] = null;
+    }
+
+    $invoice->update($update);
+
+    return back()->with('success', 'Invoice status updated to ' . $data['status'] . '.');
+}
+
     public function create(Request $request)
     {
         $companyId = $this->companyId($request);
@@ -76,6 +231,31 @@ class InvoiceController extends Controller
             'defaultCurrencyCode' => $activeCurrencyCode,
         ]);
     }
+
+   public function preview(Request $request, Invoice $invoice)
+{
+    $companyId = $this->companyId($request);
+
+    abort_unless((int) $invoice->company_id === (int) $companyId, 403);
+
+    $invoice->load(['client', 'items', 'template', 'company']);
+
+    $currency = Currency::where('code', $invoice->currency_code)->first();
+
+    $view = $invoice->template?->view_path ?? 'invoices.templates.default';
+
+    $html = View::make($view, [
+        'company' => $invoice->company,
+        'client' => $invoice->client,
+        'template' => $invoice->template,
+        'currency' => $currency,
+        'invoice' => $invoice,
+        'items' => $invoice->items,
+        'mode' => 'preview',
+    ])->render();
+
+    return response($html);
+}
 
     public function store(Request $request)
 {
@@ -288,22 +468,73 @@ class InvoiceController extends Controller
     }
 }
 
-    public function show(Request $request, Invoice $invoice)
-    {
-        $companyId = $this->companyId($request);
+ public function print(Request $request, Invoice $invoice)
+{
+    $companyId = $this->companyId($request);
 
-        if ((int) $invoice->company_id !== $companyId) {
-            throw ValidationException::withMessages([
-                'invoice' => 'Invoice not found for the active company.',
-            ]);
-        }
+    abort_unless((int) $invoice->company_id === (int) $companyId, 403);
 
-        $invoice->load(['items',]);
+    $invoice->load(['client', 'items', 'template', 'company']);
 
-        return Inertia::render('Invoices/Show', [
-            'invoice' => $invoice,
+    $currency = Currency::where('code', $invoice->currency_code)->first();
+
+    $view = $invoice->template?->view_path ?? 'invoices.templates.default';
+
+    $html = View::make($view, [
+        'company' => $invoice->company,
+        'client' => $invoice->client,
+        'template' => $invoice->template,
+        'currency' => $currency,
+        'invoice' => $invoice,
+        'items' => $invoice->items,
+        'mode' => 'print',
+    ])->render();
+
+    return Pdf::loadHTML($html)
+        ->setPaper('A4')
+        ->stream(($invoice->number ?? 'invoice') . '.pdf');
+}
+ public function show(Request $request, Invoice $invoice)
+{
+    $companyId = $this->companyId($request);
+
+    if ((int) $invoice->company_id !== (int) $companyId) {
+        throw ValidationException::withMessages([
+            'invoice' => 'Invoice not found in the active company.',
         ]);
     }
+
+    $invoice->load([
+        'client:id,company_id,name,email,contact_person',
+        'template:id,company_id,name,is_default,settings,terms_html,footer_html,view_path',
+        'items',
+    ]);
+
+    return Inertia::render('Invoices/show', [
+        'invoice' => [
+            'id' => $invoice->id,
+            'number' => $invoice->number,
+            'title' => $invoice->title,
+            'reference' => $invoice->reference,
+            'status' => $invoice->status,
+            'issue_date' => $invoice->issue_date,
+            'due_date' => $invoice->due_date,
+            'currency_code' => $invoice->currency_code,
+
+            'subtotal' => (float) $invoice->subtotal,
+            'discount_total' => (float) $invoice->discount_total,
+            'invoice_discount' => (float) ($invoice->invoice_discount ?? 0),
+            'tax_total' => (float) $invoice->tax_total,
+            'total' => (float) $invoice->total,
+
+            'notes' => $invoice->notes,
+            'terms' => $invoice->terms,
+
+            'client' => $invoice->client,
+            'items' => $invoice->items,
+        ],
+    ]);
+}
 
     // edit/update/destroy next — we’ll wire after Create is perfect
 }

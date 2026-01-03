@@ -105,8 +105,7 @@ export default function InvoiceTemplatesIndex({
                                     </div>
                                     <div className="text-sm text-muted-foreground">
                                         Create your first template to unlock
-                                        invoice preview and PDF generation
-                                        later.
+                                        invoice ; and PDF generation later.
                                     </div>
                                     <Button
                                         className="mt-3 gap-2 rounded-xl"
