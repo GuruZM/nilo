@@ -3,10 +3,14 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Company extends Model
 {
-     protected $fillable = [
+    /**
+     * @var list<string>
+     */
+    protected $fillable = [
         'owner_id',
         'name',
         'slug',
@@ -17,6 +21,42 @@ class Company extends Model
         'logo_path',
         'primary_color',
     ];
+
+    /**
+     * @var list<string>
+     */
+    protected $appends = [
+        'logo_url',
+    ];
+
+    public function getLogoUrlAttribute(): ?string
+    {
+        $logoPath = $this->logo_path;
+
+        if (! is_string($logoPath) || $logoPath === '') {
+            return null;
+        }
+
+        if (Str::startsWith($logoPath, ['http://', 'https://', '//'])) {
+            return $logoPath;
+        }
+
+        $normalizedPath = ltrim($logoPath, '/');
+
+        if (Str::startsWith($normalizedPath, 'storage/')) {
+            $normalizedPath = Str::after($normalizedPath, 'storage/');
+        }
+
+        if (Str::startsWith($normalizedPath, 'public/')) {
+            $normalizedPath = Str::after($normalizedPath, 'public/');
+        }
+
+        if ($normalizedPath === '') {
+            return null;
+        }
+
+        return '/storage/'.$normalizedPath;
+    }
 
     public function users()
     {

@@ -4,7 +4,7 @@ import Hero from '@/components/hero/Hero';
 import HowItWorks from '@/components/hero/HowItWorks';
 import Nav from '@/components/hero/Nav';
 import Pricing from '@/components/hero/Pricing';
-import { type SharedData } from '@/types';
+import { type SharedData } from '@/types/index.d';
 import { Head, usePage } from '@inertiajs/react';
 
 export default function Welcome() {

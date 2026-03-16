@@ -6,7 +6,6 @@ use Illuminate\Database\Eloquent\Model;
 
 class Invoice extends Model
 {
-     
     protected $fillable = [
         'company_id',
         'client_id',
@@ -52,15 +51,17 @@ class Invoice extends Model
     {
         return $this->hasMany(InvoiceItem::class)->orderBy('sort_order');
     }
+
     public function company()
     {
         return $this->belongsTo(Company::class);
     }
 
-   public function template()
-{
-    return $this->belongsTo(InvoiceTemplate::class, 'template_id');
-}
+    public function template()
+    {
+        return $this->belongsTo(InvoiceTemplate::class, 'invoice_template_id');
+    }
+
     /**
      * The client this invoice is for.
      */
@@ -72,5 +73,4 @@ class Invoice extends Model
     /**
      * The items for this invoice.
      */
-  
 }

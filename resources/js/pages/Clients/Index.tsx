@@ -57,6 +57,7 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
+import { type BreadcrumbItem } from '@/types/index.d';
 
 interface Client {
     id: number;
@@ -75,6 +76,10 @@ interface Client {
 interface ClientsIndexProps extends PageProps {
     clients: Client[];
 }
+
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Clients', href: '/clients' },
+];
 
 const pageEnter = {
     hidden: { opacity: 0, y: 14 },
@@ -123,7 +128,7 @@ const ClientsIndex: React.FC<ClientsIndexProps> = ({ clients }) => {
     }, [clients, q]);
 
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Clients" />
 
             <motion.div

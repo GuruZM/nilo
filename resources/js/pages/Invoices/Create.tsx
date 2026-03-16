@@ -1,4 +1,4 @@
-import { Head, useForm } from '@inertiajs/react';
+import { Head, Link, useForm } from '@inertiajs/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     ArrowLeft,
@@ -98,14 +98,25 @@ export default function InvoicesCreate({
     templates,
     defaultCurrencyCode,
     currencies,
+    hasActiveCompany = true,
 }: {
     clients: Client[];
     templates: Template[];
     defaultCurrencyCode: string;
     currencies?: { all: Currency[]; current: Currency | null };
+    hasActiveCompany?: boolean;
 }) {
     const currencyList = currencies?.all ?? [];
     const activeCurrency = currencies?.current ?? null;
+    const hasClients = clients.length > 0;
+    const hasCurrencies = currencyList.length > 0;
+    const canCreateInvoice = hasActiveCompany && hasClients && hasCurrencies;
+    const initialCurrencyCode =
+        currencyList.find((currency) => currency.code === defaultCurrencyCode)
+            ?.code ??
+        activeCurrency?.code ??
+        currencyList[0]?.code ??
+        '';
 
     const [step, setStep] = React.useState<StepKey>('details');
 
@@ -121,7 +132,7 @@ export default function InvoicesCreate({
         reference: '',
         issue_date: new Date().toISOString().slice(0, 10),
         due_date: '',
-        currency_code: defaultCurrencyCode ?? activeCurrency?.code ?? 'ZMW',
+        currency_code: initialCurrencyCode,
         has_delivery_note: false,
 
         // ✅ default pending
@@ -224,6 +235,21 @@ export default function InvoicesCreate({
     };
 
     const validateStep = (s: StepKey) => {
+        if (!hasActiveCompany) {
+            return (toast.error('Add or select a company before creating an invoice.'), false);
+        }
+
+        if (!hasClients) {
+            return (toast.error('Add a client before creating an invoice.'), false);
+        }
+
+        if (!hasCurrencies) {
+            return (
+                toast.error('Add an active currency before creating an invoice.'),
+                false
+            );
+        }
+
         if (s === 'details') {
             if (!form.data.client_id)
                 return (toast.error('Select a client.'), false);
@@ -386,7 +412,7 @@ export default function InvoicesCreate({
                             <Button
                                 type="button"
                                 onClick={goNext}
-                                disabled={form.processing}
+                                disabled={form.processing || !canCreateInvoice}
                                 className="rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
                             >
                                 Next
@@ -396,7 +422,7 @@ export default function InvoicesCreate({
                             <Button
                                 type="button"
                                 onClick={submit}
-                                disabled={form.processing}
+                                disabled={form.processing || !canCreateInvoice}
                                 className="rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
                             >
                                 Create
@@ -435,6 +461,7 @@ export default function InvoicesCreate({
                             type="button"
                             variant="outline"
                             onClick={openPreview}
+                            disabled={!canCreateInvoice}
                             className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
                         >
                             <Eye className="h-4 w-4" />
@@ -442,6 +469,52 @@ export default function InvoicesCreate({
                         </Button>
                     )}
                 </div>
+
+                {!canCreateInvoice && (
+                    <Card className="mb-6 rounded-2xl border-dashed bg-muted/20 p-5 shadow-sm">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div>
+                                <div className="text-sm font-semibold">
+                                    {hasActiveCompany
+                                        ? 'Finish setup before creating invoices'
+                                        : 'Add or select a company before creating invoices'}
+                                </div>
+                                <p className="mt-1 text-sm text-muted-foreground">
+                                    {hasActiveCompany
+                                        ? 'Invoices stay available even with no data, but you need at least one client and one active currency before you can create one.'
+                                        : 'Invoices are available, but you need an active company before clients, templates, and invoices can be managed.'}
+                                </p>
+                            </div>
+
+                            <div className="flex flex-col gap-2 sm:flex-row">
+                                {hasActiveCompany ? (
+                                    <>
+                                        <Button asChild className="rounded-xl">
+                                            <Link href="/clients/create">
+                                                Add client
+                                            </Link>
+                                        </Button>
+                                        <Button
+                                            asChild
+                                            variant="outline"
+                                            className="rounded-xl"
+                                        >
+                                            <Link href="/settings/currencies">
+                                                Manage currencies
+                                            </Link>
+                                        </Button>
+                                    </>
+                                ) : (
+                                    <Button asChild className="rounded-xl">
+                                        <Link href="/companies">
+                                            Manage companies
+                                        </Link>
+                                    </Button>
+                                )}
+                            </div>
+                        </div>
+                    </Card>
+                )}
 
                 {/* Step Cards */}
                 <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -548,7 +621,7 @@ export default function InvoicesCreate({
                         />
                         <MiniStat
                             label="Currency"
-                            value={form.data.currency_code}
+                            value={form.data.currency_code || 'Not set'}
                         />
                     </div>
                 </Card>
@@ -581,6 +654,7 @@ export default function InvoicesCreate({
                                         <Field label="Client *">
                                             <Select
                                                 value={form.data.client_id}
+                                                disabled={!hasClients}
                                                 onValueChange={(v) =>
                                                     form.setData('client_id', v)
                                                 }
@@ -589,16 +663,32 @@ export default function InvoicesCreate({
                                                     <SelectValue placeholder="Select client" />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {clients.map((c) => (
-                                                        <SelectItem
-                                                            key={c.id}
-                                                            value={String(c.id)}
-                                                        >
-                                                            {c.name}
-                                                        </SelectItem>
-                                                    ))}
+                                                    {hasClients ? (
+                                                        clients.map((c) => (
+                                                            <SelectItem
+                                                                key={c.id}
+                                                                value={String(
+                                                                    c.id,
+                                                                )}
+                                                            >
+                                                                {c.name}
+                                                            </SelectItem>
+                                                        ))
+                                                    ) : (
+                                                        <div className="px-2 py-3 text-sm text-muted-foreground">
+                                                            No clients yet. Add
+                                                            a client to
+                                                            continue.
+                                                        </div>
+                                                    )}
                                                 </SelectContent>
                                             </Select>
+                                            {!hasClients && (
+                                                <p className="mt-1 text-sm text-muted-foreground">
+                                                    Create a client first, then
+                                                    return here.
+                                                </p>
+                                            )}
                                             {form.errors.client_id && (
                                                 <p className="mt-1 text-sm text-destructive">
                                                     {form.errors.client_id}
@@ -673,6 +763,7 @@ export default function InvoicesCreate({
                                         >
                                             <Select
                                                 value={form.data.currency_code}
+                                                disabled={!hasCurrencies}
                                                 onValueChange={(v) =>
                                                     form.setData(
                                                         'currency_code',
@@ -684,16 +775,32 @@ export default function InvoicesCreate({
                                                     <SelectValue placeholder="Select currency" />
                                                 </SelectTrigger>
                                                 <SelectContent>
-                                                    {currencyList.map((c) => (
-                                                        <SelectItem
-                                                            key={c.code}
-                                                            value={c.code}
-                                                        >
-                                                            {c.code} — {c.name}
-                                                        </SelectItem>
-                                                    ))}
+                                                    {hasCurrencies ? (
+                                                        currencyList.map((c) => (
+                                                            <SelectItem
+                                                                key={c.code}
+                                                                value={c.code}
+                                                            >
+                                                                {c.code} —{' '}
+                                                                {c.name}
+                                                            </SelectItem>
+                                                        ))
+                                                    ) : (
+                                                        <div className="px-2 py-3 text-sm text-muted-foreground">
+                                                            No active
+                                                            currencies
+                                                            configured yet.
+                                                        </div>
+                                                    )}
                                                 </SelectContent>
                                             </Select>
+                                            {!hasCurrencies && (
+                                                <p className="mt-1 text-sm text-muted-foreground">
+                                                    Activate at least one
+                                                    currency before creating an
+                                                    invoice.
+                                                </p>
+                                            )}
                                         </Field>
 
                                         <Field label="Title">
@@ -1129,6 +1236,7 @@ export default function InvoicesCreate({
                                             type="button"
                                             variant="outline"
                                             onClick={openPreview}
+                                            disabled={!canCreateInvoice}
                                             className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
                                         >
                                             <Eye className="h-4 w-4" />
@@ -1161,7 +1269,10 @@ export default function InvoicesCreate({
                                         />
                                         <ReviewField
                                             label="Currency"
-                                            value={form.data.currency_code}
+                                            value={
+                                                form.data.currency_code ||
+                                                'Not set'
+                                            }
                                         />
                                         <ReviewField
                                             label="Delivery note"
@@ -1362,6 +1473,7 @@ export default function InvoicesCreate({
                                             type="button"
                                             variant="outline"
                                             onClick={openPreview}
+                                            disabled={!canCreateInvoice}
                                             className="gap-2 rounded-xl"
                                         >
                                             <Eye className="h-4 w-4" />
@@ -1402,7 +1514,7 @@ export default function InvoicesCreate({
                                     <Button
                                         type="button"
                                         onClick={submit}
-                                        disabled={form.processing}
+                                        disabled={form.processing || !canCreateInvoice}
                                         className="mt-4 w-full gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
                                     >
                                         Create invoice

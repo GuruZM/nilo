@@ -1,3 +1,4 @@
+// resources/js/Pages/Settings/InvoiceTemplates/Builder.tsx
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import type { LucideIcon } from 'lucide-react';
@@ -21,6 +22,7 @@ import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types/index.d';
 
 // shadcn
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -41,7 +43,11 @@ import { cn } from '@/lib/utils';
 type Mode = 'create' | 'edit';
 
 type TemplateSettings = {
-    preset: 'modern_minimal' | 'classic_business' | 'bold_header';
+    preset:
+        | 'modern_minimal'
+        | 'classic_business'
+        | 'bold_header'
+        | 'wave_premium';
     brand: {
         primary: string;
         accent: string;
@@ -70,6 +76,14 @@ type TemplatePayload = {
     settings: TemplateSettings;
     terms_html?: string | null;
     footer_html?: string | null;
+};
+
+type TemplateModule = {
+    type: 'invoice' | 'quotation';
+    singularTitle: string;
+    pluralTitle: string;
+    basePath: string;
+    createPath: string;
 };
 
 type BuilderStep = 'preset' | 'style' | 'layout' | 'content' | 'review';
@@ -107,9 +121,18 @@ const PRESETS: Array<{
     defaults: Partial<TemplateSettings>;
 }> = [
     {
+        id: 'wave_premium',
+        name: 'Wave Premium',
+        description: 'Bold header with wave + accent table + grand total.',
+        defaults: {
+            brand: { primary: '#111827', accent: '#F59E0B', font: 'Inter' },
+            layout: { header: 'split', table: 'striped', density: 'normal' },
+        },
+    },
+    {
         id: 'modern_minimal',
         name: 'Modern Minimal',
-        description: 'Clean header, modern look, great default.',
+        description: 'Clean, modern look. Great default.',
         defaults: {
             brand: { primary: '#0F172A', accent: '#22C55E', font: 'Inter' },
             layout: { header: 'split', table: 'striped', density: 'normal' },
@@ -118,7 +141,7 @@ const PRESETS: Array<{
     {
         id: 'classic_business',
         name: 'Classic Business',
-        description: 'Traditional layout, lined table, safe for corporates.',
+        description: 'Traditional layout, lined table, corporate safe.',
         defaults: {
             brand: { primary: '#111827', accent: '#2563EB', font: 'Arial' },
             layout: { header: 'left', table: 'lined', density: 'normal' },
@@ -127,7 +150,7 @@ const PRESETS: Array<{
     {
         id: 'bold_header',
         name: 'Bold Header',
-        description: 'Strong title + airy spacing. Great for premium brands.',
+        description: 'Strong title + airy spacing for premium brands.',
         defaults: {
             brand: { primary: '#111827', accent: '#F97316', font: 'Inter' },
             layout: { header: 'center', table: 'clean', density: 'airy' },
@@ -136,8 +159,8 @@ const PRESETS: Array<{
 ];
 
 const DEFAULT_SETTINGS: TemplateSettings = {
-    preset: 'modern_minimal',
-    brand: { primary: '#0F172A', accent: '#22C55E', font: 'Inter' },
+    preset: 'wave_premium',
+    brand: { primary: '#111827', accent: '#F59E0B', font: 'Inter' },
     layout: { header: 'split', table: 'striped', density: 'normal' },
     visibility: {
         show_logo: true,
@@ -150,7 +173,7 @@ const DEFAULT_SETTINGS: TemplateSettings = {
     },
 };
 
-// sample preview data
+// sample preview data (updated to include bank + signature)
 const SAMPLE = {
     company: {
         name: 'Nilo Labs Ltd',
@@ -158,6 +181,12 @@ const SAMPLE = {
         phone: '+260 97X XXX XXX',
         email: 'billing@nilo.ai',
         tpin: 'TPIN: 1234567890',
+        bank: {
+            name: 'Zanaco',
+            account_name: 'Nilo Labs Ltd',
+            account_number: '00123456789',
+            branch: 'Cairo Road',
+        },
     },
     client: {
         name: 'Resonant Technologies',
@@ -165,35 +194,48 @@ const SAMPLE = {
         contact_person: 'Charles Ngalasa',
         address: 'Ibex Hill, Lusaka',
     },
-    invoice: {
-        number: 'INV-000123',
+    document: {
         issue_date: '2026-01-03',
         due_date: '2026-01-10',
         notes: 'Thank you for your business. Kindly settle within due date.',
         items: [
             { desc: 'Prime POS Setup & Configuration', qty: 1, price: 2500 },
-            { desc: 'ZRA Smart Invoice Integration', qty: 1, price: 1800 },
+            { desc: 'ZRA Smart Tax Integration', qty: 1, price: 1800 },
             { desc: 'Training Session (2 hours)', qty: 1, price: 650 },
         ],
+        signature: {
+            name: 'Thomas Daney',
+            title: 'Accounting Manager',
+            label: 'Signature',
+        },
     },
 };
-
-const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Settings', href: '/settings/profile' },
-    { title: 'Invoice templates', href: '/settings/invoice-templates' },
-    { title: 'Builder', href: '/settings/invoice-templates/create' },
-];
 
 export default function InvoiceTemplateBuilder({
     mode,
     template,
+    module,
 }: {
     mode: Mode;
     template: TemplatePayload | null;
+    module: TemplateModule;
 }) {
     const page = usePage<BuilderPageProps>();
+    const singularLabel = module.singularTitle.toLowerCase();
+    const documentTitle = module.type === 'quotation' ? 'QUOTATION' : 'INVOICE';
+    const documentNumberLabel =
+        module.type === 'quotation' ? 'Quote No' : 'Invoice No';
+    const documentNumberValue =
+        module.type === 'quotation' ? 'QUO-000123' : 'INV-000123';
+    const sampleLabel =
+        module.type === 'quotation' ? 'A4 preview (sample quotation)' : 'A4 preview (sample invoice)';
 
-    // show shared flash messages if present
+    const breadcrumbs: BreadcrumbItem[] = [
+        { title: 'Settings', href: '/settings/profile' },
+        { title: module.pluralTitle, href: module.basePath },
+        { title: 'Builder', href: module.createPath },
+    ];
+
     React.useEffect(() => {
         const s = page.props.flash?.success;
         const e = page.props.flash?.error;
@@ -213,7 +255,6 @@ export default function InvoiceTemplateBuilder({
         const s = template?.settings ?? null;
         if (!s) return DEFAULT_SETTINGS;
 
-        // merge for backwards compatibility
         return {
             ...DEFAULT_SETTINGS,
             ...s,
@@ -230,7 +271,11 @@ export default function InvoiceTemplateBuilder({
         name: template?.name ?? '',
         is_default: template?.is_default ?? false,
         settings: initialSettings,
-        terms_html: template?.terms_html ?? 'Payment due within 7 days.',
+        terms_html:
+            template?.terms_html ??
+            (module.type === 'quotation'
+                ? 'Quotation valid for 7 days.'
+                : 'Payment due within 7 days.'),
         footer_html: template?.footer_html ?? 'Powered by Nilo',
     });
 
@@ -246,7 +291,6 @@ export default function InvoiceTemplateBuilder({
             brand: {
                 ...DEFAULT_SETTINGS.brand,
                 ...(preset?.defaults.brand ?? {}),
-                // keep user overrides if they already changed after preset
                 ...settings.brand,
             },
             layout: {
@@ -332,36 +376,55 @@ export default function InvoiceTemplateBuilder({
             return;
         }
 
+        const payload = {
+            name: form.data.name,
+            is_default: !!form.data.is_default,
+            settings: form.data.settings,
+            terms_html: form.data.terms_html,
+            footer_html: form.data.footer_html,
+        };
+
+        const onError = (errors: any) => {
+            toast.error(
+                errors?.template ||
+                    errors?.name ||
+                    errors?.settings ||
+                    'Failed to save template.',
+            );
+        };
+
         if (mode === 'create') {
-            form.post('/settings/invoice-templates', {
+            router.post(module.basePath, payload, {
                 preserveScroll: true,
                 preserveState: false,
-                onSuccess: () => toast.success('Invoice template created.'),
-                onError: (errors) =>
-                    toast.error(
-                        (errors as any)?.template ||
-                            (errors as any)?.name ||
-                            'Failed to create template.',
-                    ),
+                onSuccess: () => toast.success(`${module.singularTitle} created.`),
+                onError,
             });
         } else {
-            form.put(`/settings/invoice-templates/${template?.id}`, {
+            router.put(`${module.basePath}/${template?.id}`, payload, {
                 preserveScroll: true,
                 preserveState: false,
-                onSuccess: () => toast.success('Invoice template updated.'),
-                onError: (errors) =>
-                    toast.error(
-                        (errors as any)?.template ||
-                            (errors as any)?.name ||
-                            'Failed to update template.',
-                    ),
+                onSuccess: () => toast.success(`${module.singularTitle} updated.`),
+                onError,
             });
         }
     };
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Invoice template builder" />
+            <Head title={`${module.singularTitle} builder`}>
+                {/* Optional: ensure Inter/Roboto actually exist */}
+                <link rel="preconnect" href="https://fonts.googleapis.com" />
+                <link
+                    rel="preconnect"
+                    href="https://fonts.gstatic.com"
+                    crossOrigin=""
+                />
+                <link
+                    href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Roboto:wght@400;500;700&display=swap"
+                    rel="stylesheet"
+                />
+            </Head>
 
             <SettingsLayout>
                 <motion.div
@@ -376,13 +439,20 @@ export default function InvoiceTemplateBuilder({
                                 <LayoutTemplate className="h-6 w-6 opacity-80" />
                             </div>
                             <div>
-                                <h1 className="text-2xl font-semibold tracking-tight">
-                                    Invoice template builder
-                                </h1>
+                                <div className="flex items-center gap-2">
+                                    <h1 className="text-2xl font-semibold tracking-tight">
+                                        {module.singularTitle} builder
+                                    </h1>
+                                    <Badge
+                                        variant="secondary"
+                                        className="rounded-full"
+                                    >
+                                        {mode === 'create' ? 'Create' : 'Edit'}
+                                    </Badge>
+                                </div>
                                 <p className="mt-1 text-sm text-muted-foreground">
-                                    Build a reusable invoice template for the
-                                    active company. Presets + styling + live
-                                    preview.
+                                    Premium presets + styling + layout controls
+                                    with a designer-grade live preview.
                                 </p>
                             </div>
                         </div>
@@ -391,9 +461,7 @@ export default function InvoiceTemplateBuilder({
                             <Button
                                 variant="outline"
                                 className="gap-2 rounded-xl"
-                                onClick={() =>
-                                    router.visit('/settings/invoice-templates')
-                                }
+                                onClick={() => router.visit(module.basePath)}
                             >
                                 <ArrowLeft className="h-4 w-4" />
                                 Back
@@ -441,7 +509,7 @@ export default function InvoiceTemplateBuilder({
                                                         )
                                                     }
                                                     className="rounded-xl"
-                                                    placeholder="e.g. Modern Minimal (Invoice)"
+                                                    placeholder={`e.g. Wave Premium (${module.type === 'quotation' ? 'Quotation' : 'Invoice'})`}
                                                 />
                                                 {form.errors.name && (
                                                     <p className="text-sm text-destructive">
@@ -456,8 +524,8 @@ export default function InvoiceTemplateBuilder({
                                                         Default template
                                                     </div>
                                                     <div className="text-xs text-muted-foreground">
-                                                        Make this the default
-                                                        invoice template for
+                                                        Make this the default{' '}
+                                                        {singularLabel} for
                                                         this company.
                                                     </div>
                                                 </div>
@@ -690,7 +758,7 @@ export default function InvoiceTemplateBuilder({
 
                                             <div className="space-y-3">
                                                 <div className="text-sm font-semibold">
-                                                    Visibility
+                                                    Visibility (layout)
                                                 </div>
 
                                                 <ToggleRow
@@ -732,6 +800,25 @@ export default function InvoiceTemplateBuilder({
                                                         )
                                                     }
                                                 />
+                                            </div>
+                                        </motion.div>
+                                    )}
+
+                                    {step === 'content' && (
+                                        <motion.div
+                                            key="content"
+                                            initial={{ opacity: 0, y: 10 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            exit={{ opacity: 0, y: 10 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="space-y-4"
+                                        >
+                                            {/* Content toggles moved here */}
+                                            <div className="space-y-3">
+                                                <div className="text-sm font-semibold">
+                                                    Content blocks
+                                                </div>
+
                                                 <ToggleRow
                                                     label="Show notes"
                                                     checked={
@@ -759,7 +846,7 @@ export default function InvoiceTemplateBuilder({
                                                     }
                                                 />
                                                 <ToggleRow
-                                                    label="Show bank details (later)"
+                                                    label="Show bank details"
                                                     checked={
                                                         settings.visibility
                                                             .show_bank_details
@@ -772,7 +859,7 @@ export default function InvoiceTemplateBuilder({
                                                     }
                                                 />
                                                 <ToggleRow
-                                                    label="Show signature (later)"
+                                                    label="Show signature"
                                                     checked={
                                                         settings.visibility
                                                             .show_signature
@@ -785,18 +872,9 @@ export default function InvoiceTemplateBuilder({
                                                     }
                                                 />
                                             </div>
-                                        </motion.div>
-                                    )}
 
-                                    {step === 'content' && (
-                                        <motion.div
-                                            key="content"
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: 10 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="space-y-4"
-                                        >
+                                            <Separator />
+
                                             <div className="space-y-2">
                                                 <Label>Default terms</Label>
                                                 <Textarea
@@ -860,6 +938,12 @@ export default function InvoiceTemplateBuilder({
                                                     </div>
                                                     <div>
                                                         <span className="font-medium text-foreground">
+                                                            Font:
+                                                        </span>{' '}
+                                                        {settings.brand.font}
+                                                    </div>
+                                                    <div>
+                                                        <span className="font-medium text-foreground">
                                                             Header:
                                                         </span>{' '}
                                                         {settings.layout.header}
@@ -893,14 +977,16 @@ export default function InvoiceTemplateBuilder({
                                                     : 'Update template'}
                                             </Button>
 
-                                            {form.errors && (
-                                                <p className="text-sm text-destructive">
-                                                    {
-                                                        (form.errors as any)
-                                                            .template
-                                                    }
-                                                </p>
-                                            )}
+                                            {form.errors &&
+                                                (form.errors as any)
+                                                    .template && (
+                                                    <p className="text-sm text-destructive">
+                                                        {
+                                                            (form.errors as any)
+                                                                .template
+                                                        }
+                                                    </p>
+                                                )}
                                         </motion.div>
                                     )}
                                 </AnimatePresence>
@@ -953,12 +1039,16 @@ export default function InvoiceTemplateBuilder({
                                     </div>
                                 </div>
                                 <div className="text-xs text-muted-foreground">
-                                    A4 preview (sample data)
+                                    {sampleLabel}
                                 </div>
                             </div>
 
                             <div className="flex-1">
-                                <A4Preview
+                                <A4PreviewPremium
+                                    documentNumberLabel={documentNumberLabel}
+                                    documentNumberValue={documentNumberValue}
+                                    documentTitle={documentTitle}
+                                    documentType={module.type}
                                     settings={settings}
                                     terms={form.data.terms_html}
                                     footer={form.data.footer_html}
@@ -1022,181 +1112,225 @@ function ToggleRow({
 }
 
 /**
- * A4Preview: lightweight visual preview.
- * Later we can reuse this component to generate PDFs (browsershot/dompdf).
+ * Premium A4 preview inspired by the reference image:
+ * - Dark hero header band
+ * - Wave separator
+ * - Accent table header + Grand Total bar
+ * - Clean blocks for bill-to, notes, terms
+ * - Added: bank + signature controlled by toggles
+ * - Added: font family mapping (Inter/Roboto/Arial)
  */
-function A4Preview({
+function A4PreviewPremium({
+    documentNumberLabel,
+    documentNumberValue,
+    documentTitle,
+    documentType,
     settings,
     terms,
     footer,
 }: {
+    documentNumberLabel: string;
+    documentNumberValue: string;
+    documentTitle: string;
+    documentType: 'invoice' | 'quotation';
     settings: TemplateSettings;
     terms: string;
     footer: string;
 }) {
-    const density = settings.layout.density;
+    const accent = settings.brand.accent;
+    const primary = settings.brand.primary;
 
-    const pad =
-        density === 'compact' ? 'p-6' : density === 'airy' ? 'p-10' : 'p-8';
+    const fontMap: Record<TemplateSettings['brand']['font'], string> = {
+        Inter: 'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif',
+        Roboto: 'Roboto, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif',
+        Arial: 'Arial, Helvetica, ui-sans-serif, system-ui, sans-serif',
+    };
+    const fontFamily = fontMap[settings.brand.font] ?? fontMap.Inter;
 
-    const font = 'font-sans';
-    const headerAlign =
-        settings.layout.header === 'center' ? 'text-center' : 'text-left';
-    const tableStyle = settings.layout.table;
-
-    const items = SAMPLE.invoice.items.map((it) => ({
+    const items = SAMPLE.document.items.map((it) => ({
         ...it,
         total: it.qty * it.price,
     }));
 
     const subtotal = items.reduce((a, b) => a + b.total, 0);
 
+    // NOTE: preview math only
+    const vat = subtotal * 0.16;
+    const grand = subtotal + vat;
+
+    const density = settings.layout.density;
+    const pad =
+        density === 'compact'
+            ? 'px-7 pt-7 pb-7'
+            : density === 'airy'
+              ? 'px-10 pt-10 pb-10'
+              : 'px-8 pt-8 pb-8';
+
+    const table = settings.layout.table;
+    const isCenter = settings.layout.header === 'center';
+
     return (
         <div className="flex justify-center">
             <div
-                className={cn(
-                    'w-full max-w-[760px] overflow-hidden rounded-2xl border bg-white shadow-sm',
-                    font,
-                )}
-                style={{ color: settings.brand.primary }}
+                className="relative w-full max-w-[760px] overflow-hidden rounded-2xl bg-white shadow-xl"
+                style={{ fontFamily }}
             >
-                <div className={cn(pad)}>
-                    {/* Header */}
-                    <div
-                        className={cn(
-                            'flex items-start justify-between gap-6',
-                            headerAlign,
-                        )}
-                    >
+                {/* ===== HERO HEADER ===== */}
+                <div
+                    className={cn(
+                        'relative text-white',
+                        isCenter ? 'text-center' : 'text-left',
+                    )}
+                    style={{ backgroundColor: primary }}
+                >
+                    <div className={cn(pad, 'relative z-10 pb-16')}>
                         <div
                             className={cn(
-                                settings.layout.header === 'center'
-                                    ? 'w-full'
-                                    : 'min-w-0',
+                                'flex items-start justify-between gap-6',
+                                isCenter && 'flex-col items-center',
                             )}
                         >
-                            <div className="flex items-center gap-3">
+                            <div
+                                className={cn(
+                                    'flex items-center gap-4',
+                                    isCenter && 'justify-center',
+                                )}
+                            >
                                 {settings.visibility.show_logo && (
                                     <div
-                                        className="grid h-10 w-10 place-items-center rounded-xl"
+                                        className="grid h-12 w-12 place-items-center rounded-xl text-[11px] font-bold"
                                         style={{
-                                            background:
-                                                settings.brand.accent + '22',
+                                            backgroundColor: accent,
+                                            color: primary,
                                         }}
                                     >
-                                        <span
-                                            className="text-xs font-semibold"
-                                            style={{
-                                                color: settings.brand.accent,
-                                            }}
-                                        >
-                                            LOGO
-                                        </span>
+                                        LOGO
                                     </div>
                                 )}
-                                <div className="min-w-0">
-                                    <div className="text-lg font-semibold">
+                                <div
+                                    className={cn(
+                                        'min-w-0',
+                                        isCenter && 'text-center',
+                                    )}
+                                >
+                                    <div className="text-lg leading-tight font-semibold">
                                         {SAMPLE.company.name}
                                     </div>
-                                    <div className="text-xs opacity-70">
+                                    <div className="mt-1 text-xs opacity-80">
                                         {SAMPLE.company.address}
                                     </div>
-                                    <div className="text-xs opacity-70">
+                                    <div className="text-xs opacity-80">
                                         {SAMPLE.company.phone} •{' '}
                                         {SAMPLE.company.email}
                                     </div>
-                                    <div className="text-xs opacity-70">
+                                    <div className="text-xs opacity-80">
                                         {SAMPLE.company.tpin}
                                     </div>
                                 </div>
                             </div>
-                        </div>
 
-                        {settings.layout.header !== 'center' && (
-                            <div className="shrink-0 text-right">
-                                <div className="text-xl font-semibold">
-                                    INVOICE
+                            <div
+                                className={cn(
+                                    'shrink-0',
+                                    isCenter ? 'text-center' : 'text-right',
+                                )}
+                            >
+                                <div className="text-3xl font-extrabold tracking-[0.18em]">
+                                    {documentTitle}
                                 </div>
-                                <div className="mt-1 text-xs opacity-70">
-                                    <div>#{SAMPLE.invoice.number}</div>
+                                <div className="mt-3 space-y-1 text-xs opacity-80">
                                     <div>
-                                        Issue: {SAMPLE.invoice.issue_date}
+                                        {documentNumberLabel}:{' '}
+                                        {documentNumberValue}
                                     </div>
-                                    <div>Due: {SAMPLE.invoice.due_date}</div>
+                                    <div>Date: {SAMPLE.document.issue_date}</div>
+                                    <div>Due: {SAMPLE.document.due_date}</div>
                                 </div>
                             </div>
-                        )}
+                        </div>
                     </div>
 
-                    {settings.layout.header === 'center' && (
-                        <div className="mt-4 text-center">
-                            <div className="text-2xl font-semibold">
-                                INVOICE
-                            </div>
-                            <div className="mt-2 text-xs opacity-70">
-                                #{SAMPLE.invoice.number} • Issue{' '}
-                                {SAMPLE.invoice.issue_date} • Due{' '}
-                                {SAMPLE.invoice.due_date}
-                            </div>
-                        </div>
-                    )}
+                    {/* wave */}
+                    <svg
+                        viewBox="0 0 1440 140"
+                        className="absolute bottom-0 left-0 w-full"
+                        preserveAspectRatio="none"
+                    >
+                        <path
+                            fill="#ffffff"
+                            d="M0,96L60,90.7C120,85,240,75,360,74.7C480,75,600,85,720,96C840,107,960,117,1080,117.3C1200,117,1320,107,1380,101.3L1440,96L1440,140L1380,140C1320,140,1200,140,1080,140C960,140,840,140,720,140C600,140,480,140,360,140C240,140,120,140,60,140L0,140Z"
+                        />
+                    </svg>
+                </div>
 
-                    <Separator className="my-6" />
-
-                    {/* Client block */}
-                    <div className="grid grid-cols-2 gap-6">
-                        <div>
-                            <div className="text-xs font-semibold opacity-80">
-                                BILL TO
+                {/* ===== BODY ===== */}
+                <div className={cn(pad, 'pt-8')}>
+                    {/* Bill To + mini summary */}
+                    <div className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="min-w-0">
+                            <div
+                                className="text-xs font-semibold uppercase"
+                                style={{ color: accent }}
+                            >
+                                To:
                             </div>
-                            <div className="mt-2 text-sm font-semibold">
+                            <div className="mt-1 text-sm font-semibold">
                                 {SAMPLE.client.name}
                             </div>
-                            <div className="text-xs opacity-70">
+                            <div className="text-xs text-muted-foreground">
                                 {SAMPLE.client.address}
                             </div>
+
                             {settings.visibility.show_client_email && (
-                                <div className="text-xs opacity-70">
+                                <div className="text-xs text-muted-foreground">
                                     {SAMPLE.client.email}
                                 </div>
                             )}
                             {settings.visibility.show_contact_person && (
-                                <div className="text-xs opacity-70">
+                                <div className="text-xs text-muted-foreground">
                                     Attn: {SAMPLE.client.contact_person}
                                 </div>
                             )}
                         </div>
 
-                        <div className="text-right">
-                            <div className="text-xs font-semibold opacity-80">
-                                SUMMARY
+                        <div
+                            className="w-full rounded-xl px-5 py-3 sm:w-[260px]"
+                            style={{ backgroundColor: accent + '22' }}
+                        >
+                            <div className="flex items-center justify-between text-xs text-muted-foreground">
+                                <span>Sub Total</span>
+                                <span className="font-semibold text-foreground">
+                                    K {subtotal.toFixed(2)}
+                                </span>
+                            </div>
+                            <div className="mt-2 flex items-center justify-between text-xs text-muted-foreground">
+                                <span>VAT (16%)</span>
+                                <span className="font-semibold text-foreground">
+                                    K {vat.toFixed(2)}
+                                </span>
                             </div>
                             <div
-                                className="mt-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs"
+                                className="mt-3 flex items-center justify-between rounded-lg px-3 py-2 text-sm font-bold"
                                 style={{
-                                    background: settings.brand.accent + '22',
-                                    color: settings.brand.accent,
+                                    backgroundColor: accent,
+                                    color: primary,
                                 }}
                             >
-                                <span className="font-semibold">Subtotal</span>
-                                <span>K {subtotal.toFixed(2)}</span>
+                                <span>GRAND TOTAL</span>
+                                <span>K {grand.toFixed(2)}</span>
                             </div>
                         </div>
                     </div>
 
-                    <Separator className="my-6" />
-
                     {/* Items table */}
                     <div className="overflow-hidden rounded-xl border">
                         <div
-                            className="grid grid-cols-12 gap-2 px-4 py-3 text-xs font-semibold"
-                            style={{
-                                background: settings.brand.primary + '08',
-                            }}
+                            className="grid grid-cols-12 gap-2 px-4 py-3 text-xs font-semibold uppercase"
+                            style={{ backgroundColor: accent, color: primary }}
                         >
-                            <div className="col-span-6">Description</div>
-                            <div className="col-span-2 text-right">Qty</div>
+                            <div className="col-span-6">Item Description</div>
                             <div className="col-span-2 text-right">Price</div>
+                            <div className="col-span-2 text-right">Qty</div>
                             <div className="col-span-2 text-right">Total</div>
                         </div>
 
@@ -1205,20 +1339,28 @@ function A4Preview({
                                 key={idx}
                                 className={cn(
                                     'grid grid-cols-12 gap-2 px-4 py-3 text-sm',
-                                    tableStyle === 'lined' && 'border-t',
-                                    tableStyle === 'striped' &&
+                                    table === 'lined' && 'border-t',
+                                    table === 'striped' &&
                                         idx % 2 === 1 &&
-                                        'bg-black/[0.02]',
-                                    tableStyle === 'clean' &&
+                                        'bg-black/[0.03]',
+                                    table === 'clean' &&
                                         'border-t border-black/[0.04]',
                                 )}
                             >
-                                <div className="col-span-6">{it.desc}</div>
-                                <div className="col-span-2 text-right">
-                                    {it.qty}
+                                <div className="col-span-6">
+                                    <div className="font-semibold">
+                                        {it.desc}
+                                    </div>
+                                    <div className="mt-0.5 text-xs text-muted-foreground">
+                                        Contrary to popular belief Lorem ipsum
+                                        simply random.
+                                    </div>
                                 </div>
                                 <div className="col-span-2 text-right">
                                     {it.price.toFixed(2)}
+                                </div>
+                                <div className="col-span-2 text-right">
+                                    {it.qty}
                                 </div>
                                 <div className="col-span-2 text-right font-semibold">
                                     {it.total.toFixed(2)}
@@ -1227,33 +1369,83 @@ function A4Preview({
                         ))}
                     </div>
 
-                    {/* Notes / Terms */}
-                    <div className="mt-6 grid grid-cols-1 gap-4">
-                        {settings.visibility.show_notes && (
-                            <div className="rounded-xl border p-4">
-                                <div className="text-xs font-semibold opacity-80">
-                                    NOTES
+                    {/* Bottom blocks */}
+                    <div className="mt-10 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                        <div className="space-y-4">
+                            {settings.visibility.show_notes && (
+                                <div className="rounded-xl border p-4">
+                                    <div className="text-xs font-semibold text-muted-foreground uppercase">
+                                        Payment Info
+                                    </div>
+                                    <div className="mt-2 text-sm text-muted-foreground">
+                                        Paypal: paypal@company.com <br />
+                                        Payment: Visa, Master Card <br />
+                                        We accept Cheque
+                                    </div>
                                 </div>
-                                <div className="mt-2 text-sm opacity-80">
-                                    {SAMPLE.invoice.notes}
-                                </div>
-                            </div>
-                        )}
+                            )}
 
-                        {settings.visibility.show_terms && (
-                            <div className="rounded-xl border p-4">
-                                <div className="text-xs font-semibold opacity-80">
-                                    TERMS
+                            {settings.visibility.show_bank_details && (
+                                <div className="rounded-xl border p-4">
+                                    <div className="text-xs font-semibold text-muted-foreground uppercase">
+                                        Bank Details
+                                    </div>
+                                    <div className="mt-2 text-sm text-muted-foreground">
+                                        Bank: {SAMPLE.company.bank.name}
+                                        <br />
+                                        Account Name:{' '}
+                                        {SAMPLE.company.bank.account_name}
+                                        <br />
+                                        Account No:{' '}
+                                        {SAMPLE.company.bank.account_number}
+                                        <br />
+                                        Branch: {SAMPLE.company.bank.branch}
+                                    </div>
                                 </div>
-                                <div className="mt-2 text-sm whitespace-pre-wrap opacity-80">
-                                    {terms || '—'}
+                            )}
+
+                            {settings.visibility.show_terms && (
+                                <div className="rounded-xl border p-4">
+                                    <div className="text-xs font-semibold text-muted-foreground uppercase">
+                                        Terms
+                                    </div>
+                                    <div className="mt-2 text-sm whitespace-pre-wrap text-muted-foreground">
+                                        {terms || '—'}
+                                    </div>
                                 </div>
+                            )}
+                        </div>
+
+                        <div className="rounded-xl border p-4">
+                            <div className="text-xs font-semibold text-muted-foreground uppercase">
+                                Thank you for your business!
                             </div>
-                        )}
+                            <div className="mt-2 text-sm text-muted-foreground">
+                                {documentType === 'quotation'
+                                    ? 'Thanks for considering this quotation. We are ready to proceed once approved.'
+                                    : SAMPLE.document.notes}
+                            </div>
+
+                            {settings.visibility.show_signature && (
+                                <div className="mt-6 flex items-end justify-end">
+                                    <div className="text-right">
+                                        <div className="text-sm font-semibold">
+                                            {SAMPLE.document.signature.name}
+                                        </div>
+                                        <div className="text-xs text-muted-foreground">
+                                            {SAMPLE.document.signature.title}
+                                        </div>
+                                        <div className="mt-3 text-sm font-semibold italic opacity-70">
+                                            {SAMPLE.document.signature.label}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     </div>
 
                     {/* Footer */}
-                    <div className="mt-8 text-center text-xs opacity-70">
+                    <div className="mt-10 text-center text-xs text-muted-foreground">
                         {footer || ''}
                     </div>
                 </div>

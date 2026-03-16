@@ -1,6 +1,9 @@
 import { NavMain } from '@/components/nav-main';
 import { NavUser } from '@/components/nav-user';
 import {
+    edit as editAppearance,
+} from '@/routes/appearance';
+import {
     Sidebar,
     SidebarContent,
     SidebarFooter,
@@ -10,6 +13,7 @@ import {
     SidebarMenuItem,
 } from '@/components/ui/sidebar';
 import { dashboard } from '@/routes';
+import { show as showTwoFactor } from '@/routes/two-factor';
 import { type NavItem } from '@/types';
 import { Link } from '@inertiajs/react';
 import { LayoutGrid } from 'lucide-react';
@@ -17,9 +21,19 @@ import { LayoutGrid } from 'lucide-react';
 import AppLogo from './app-logo';
 import { CompanySwitcher } from './company-switcher';
 
-import { Building2, FileSignature, FileText, Users } from 'lucide-react';
+import {
+    Building2,
+    Coins,
+    FileSignature,
+    FileText,
+    LayoutTemplate,
+    Palette,
+    Settings2,
+    ShieldCheck,
+    Users,
+} from 'lucide-react';
 
-const mainNavItems: NavItem[] = [
+const navigationItems: NavItem[] = [
     {
         title: 'Dashboard',
         href: dashboard(),
@@ -45,20 +59,44 @@ const mainNavItems: NavItem[] = [
         href: '/clients',
         icon: Users,
     },
+    {
+        title: 'Configurations',
+        href: '#',
+        icon: Settings2,
+        items: [
+            {
+                title: 'Templates',
+                href: '#',
+                icon: LayoutTemplate,
+                items: [
+                    {
+                        title: 'Invoice Templates',
+                        href: '/settings/invoice-templates',
+                    },
+                    {
+                        title: 'Quotation Templates',
+                        href: '/settings/quotation-templates',
+                    },
+                ],
+            },
+            {
+                title: 'Currencies',
+                href: '/settings/currencies',
+                icon: Coins,
+            },
+            {
+                title: 'Appearance',
+                href: editAppearance(),
+                icon: Palette,
+            },
+            {
+                title: 'Two-Factor Auth',
+                href: showTwoFactor(),
+                icon: ShieldCheck,
+            },
+        ],
+    },
 ];
-
-// const footerNavItems: NavItem[] = [
-//     {
-//         title: 'Repository',
-//         href: 'https://github.com/laravel/react-starter-kit',
-//         icon: Folder,
-//     },
-//     {
-//         title: 'Documentation',
-//         href: 'https://laravel.com/docs/starter-kits#react',
-//         icon: BookOpen,
-//     },
-// ];
 
 export function AppSidebar() {
     return (
@@ -79,7 +117,7 @@ export function AppSidebar() {
             </SidebarHeader>
 
             <SidebarContent>
-                <NavMain items={mainNavItems} />
+                <NavMain items={navigationItems} />
             </SidebarContent>
 
             <SidebarFooter>

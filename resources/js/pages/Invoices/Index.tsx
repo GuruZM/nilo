@@ -34,6 +34,7 @@ import {
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
+import { type BreadcrumbItem } from '@/types/index.d';
 
 type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'void' | string;
 
@@ -51,12 +52,17 @@ interface Invoice {
 
 interface InvoicesIndexProps extends PageProps {
     invoices: Invoice[];
+    hasActiveCompany?: boolean;
 
     // optional (if you already share currencies in middleware)
     currencies?: {
         current?: { code: string; symbol?: string | null; precision?: number };
     };
 }
+
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Invoices', href: '/invoices' },
+];
 
 function statusBadgeVariant(status: InvoiceStatus) {
     const s = (status || '').toLowerCase();
@@ -94,6 +100,7 @@ function formatMoney(
 
 export default function InvoicesIndex({
     invoices,
+    hasActiveCompany = true,
     currencies,
 }: InvoicesIndexProps) {
     const [query, setQuery] = React.useState('');
@@ -175,7 +182,7 @@ export default function InvoicesIndex({
     };
 
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Invoices" />
 
             <motion.div
@@ -203,6 +210,7 @@ export default function InvoicesIndex({
 
                     <Button
                         asChild
+                        disabled={!hasActiveCompany}
                         className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
                     >
                         <Link href="/invoices/create">
@@ -211,6 +219,26 @@ export default function InvoicesIndex({
                         </Link>
                     </Button>
                 </div>
+
+                {!hasActiveCompany && (
+                    <Card className="mb-6 rounded-2xl border-dashed bg-muted/20 p-5 shadow-sm">
+                        <div className="flex flex-col gap-2">
+                            <div className="text-sm font-semibold">
+                                Add or select a company to use invoices
+                            </div>
+                            <p className="text-sm text-muted-foreground">
+                                The invoices module is available, but you need
+                                an active company before invoices can be listed
+                                or created.
+                            </p>
+                            <div>
+                                <Button asChild className="rounded-xl">
+                                    <Link href="/companies">Manage companies</Link>
+                                </Button>
+                            </div>
+                        </div>
+                    </Card>
+                )}
 
                 {/* Quick stats */}
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">

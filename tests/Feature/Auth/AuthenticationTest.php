@@ -1,10 +1,27 @@
 <?php
 
 use App\Models\User;
+use Illuminate\Support\Env;
 use Illuminate\Support\Facades\RateLimiter;
+use Illuminate\Support\Facades\Schema;
+use Inertia\Testing\AssertableInertia as Assert;
 use Laravel\Fortify\Features;
+use Symfony\Component\HttpFoundation\Cookie;
 
 test('login screen can be rendered', function () {
+    $response = $this->get(route('login'));
+
+    $response
+        ->assertOk()
+        ->assertInertia(fn (Assert $page) => $page
+            ->component('auth/login')
+            ->where('canResetPassword', true)
+        );
+});
+
+test('login screen can be rendered when currencies are unavailable', function () {
+    Schema::dropIfExists('currencies');
+
     $response = $this->get(route('login'));
 
     $response->assertStatus(200);
@@ -85,4 +102,46 @@ test('users are rate limited', function () {
     $errors = session('errors');
 
     $this->assertStringContainsString('Too many login attempts', $errors->first('email'));
+});
+
+test('blank session domain values do not produce invalid cookie domains', function () {
+    $previousPutenv = getenv('SESSION_DOMAIN');
+    $hadEnv = array_key_exists('SESSION_DOMAIN', $_ENV);
+    $previousEnv = $_ENV['SESSION_DOMAIN'] ?? null;
+    $hadServer = array_key_exists('SESSION_DOMAIN', $_SERVER);
+    $previousServer = $_SERVER['SESSION_DOMAIN'] ?? null;
+
+    putenv('SESSION_DOMAIN=');
+    $_ENV['SESSION_DOMAIN'] = '';
+    $_SERVER['SESSION_DOMAIN'] = '';
+    Env::enablePutenv();
+
+    try {
+        $sessionConfig = require base_path('config/session.php');
+    } finally {
+        if ($previousPutenv === false) {
+            putenv('SESSION_DOMAIN');
+        } else {
+            putenv("SESSION_DOMAIN={$previousPutenv}");
+        }
+
+        if ($hadEnv) {
+            $_ENV['SESSION_DOMAIN'] = $previousEnv;
+        } else {
+            unset($_ENV['SESSION_DOMAIN']);
+        }
+
+        if ($hadServer) {
+            $_SERVER['SESSION_DOMAIN'] = $previousServer;
+        } else {
+            unset($_SERVER['SESSION_DOMAIN']);
+        }
+
+        Env::enablePutenv();
+    }
+
+    $cookie = new Cookie('laravel_session', 'value', 0, '/', $sessionConfig['domain']);
+
+    expect($sessionConfig['domain'])->toBeNull()
+        ->and((string) $cookie)->not->toContain('; domain=');
 });

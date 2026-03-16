@@ -5,6 +5,7 @@ import {
     CheckCircle2,
     Clock3,
     FileText,
+    Search,
     TrendingUp,
     Users,
 } from 'lucide-react';
@@ -32,7 +33,7 @@ import { type BreadcrumbItem } from '@/types/index.d';
 // shadcn
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 type DashboardStats = {
@@ -47,6 +48,9 @@ type DashboardStats = {
 
     overdue_revenue: number;
     due_in_7_revenue: number;
+
+    currency_code?: string | null;
+    precision?: number | null;
 
     as_of?: string;
 };
@@ -114,15 +118,27 @@ export default function Dashboard() {
             top_clients: TopClient[];
         };
 
-    const currency = React.useMemo(() => {
-        // we can’t guarantee a single currency across invoices,
-        // but dashboard often uses company’s primary; fall back to ZMW.
-        return 'ZMW';
-    }, []);
+    // ---------------------------
+    // Currency + formatting
+    // ---------------------------
+    const baseCurrency = stats?.currency_code ?? 'ZMW';
+    const precision = Number.isFinite(Number(stats?.precision))
+        ? Number(stats?.precision)
+        : 2;
 
-    const money = (n: number, code?: string) =>
-        `${code ?? currency} ${Number.isFinite(n) ? n.toFixed(2) : '0.00'}`;
+    const money = React.useCallback(
+        (n: number, code?: string) =>
+            `${code ?? baseCurrency} ${
+                Number.isFinite(n)
+                    ? n.toFixed(precision)
+                    : (0).toFixed(precision)
+            }`,
+        [baseCurrency, precision],
+    );
 
+    // ---------------------------
+    // Charts prep
+    // ---------------------------
     const paidPendingPie = React.useMemo(() => {
         if (!charts?.paid_vs_pending) return [];
         return charts.paid_vs_pending.labels.map((name, idx) => ({
@@ -168,29 +184,88 @@ export default function Dashboard() {
         ];
     }, [charts?.aging]);
 
+    // ---------------------------
+    // Recent table filtering + search + sorting
+    // ---------------------------
     const [tableFilter, setTableFilter] = React.useState<
-        'all' | 'paid' | 'pending'
+        'all' | 'paid' | 'pending' | 'overdue'
     >('all');
+
+    const [query, setQuery] = React.useState('');
+    const [sortKey, setSortKey] = React.useState<
+        'due_date' | 'total' | 'status'
+    >('due_date');
+    const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
+
+    const todayIso = React.useMemo(
+        () => new Date().toISOString().slice(0, 10),
+        [],
+    );
 
     const filteredRecent = React.useMemo(() => {
         const list = recent_invoices ?? [];
-        if (tableFilter === 'all') return list;
-        return list.filter((i) => i.status === tableFilter);
-    }, [recent_invoices, tableFilter]);
 
+        const byStatus =
+            tableFilter === 'all'
+                ? list
+                : tableFilter === 'overdue'
+                  ? list.filter(
+                        (i) =>
+                            i.status === 'pending' &&
+                            !!i.due_date &&
+                            i.due_date < todayIso,
+                    )
+                  : list.filter((i) => i.status === tableFilter);
+
+        const q = query.trim().toLowerCase();
+        const byQuery = !q
+            ? byStatus
+            : byStatus.filter((inv) => {
+                  const num = (inv.number ?? `#${inv.id}`).toLowerCase();
+                  const client = (inv.client?.name ?? '').toLowerCase();
+                  return num.includes(q) || client.includes(q);
+              });
+
+        const sorted = [...byQuery].sort((a, b) => {
+            const dir = sortDir === 'asc' ? 1 : -1;
+
+            if (sortKey === 'total') {
+                return (a.total - b.total) * dir;
+            }
+
+            if (sortKey === 'status') {
+                // pending before paid (asc)
+                const av = a.status === 'pending' ? 0 : 1;
+                const bv = b.status === 'pending' ? 0 : 1;
+                return (av - bv) * dir;
+            }
+
+            // due_date
+            const ad = a.due_date ?? '9999-12-31';
+            const bd = b.due_date ?? '9999-12-31';
+            return ad.localeCompare(bd) * dir;
+        });
+
+        return sorted;
+    }, [recent_invoices, tableFilter, query, sortKey, sortDir, todayIso]);
+
+    // ---------------------------
+    // Calendar month grid + drawer
+    // ---------------------------
     const monthKey = (d: Date) =>
         `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
     const [calMonth, setCalMonth] = React.useState(() => monthKey(new Date()));
+    const [selectedDay, setSelectedDay] = React.useState<string | null>(null);
 
     const monthDays = React.useMemo(() => {
         const [y, m] = calMonth.split('-').map(Number);
         const first = new Date(y, m - 1, 1);
-        const last = new Date(y, m, 0); // last day of month
+        const last = new Date(y, m, 0);
 
         // start from Monday
         const start = new Date(first);
-        const day = start.getDay(); // 0 Sun ... 6 Sat
+        const day = start.getDay();
         const shift = day === 0 ? 6 : day - 1;
         start.setDate(start.getDate() - shift);
 
@@ -201,7 +276,7 @@ export default function Dashboard() {
             const iso = cursor.toISOString().slice(0, 10);
             days.push({ date: new Date(cursor), iso });
             cursor.setDate(cursor.getDate() + 1);
-            if (days.length > 42) break; // 6 weeks max
+            if (days.length > 42) break;
         }
 
         return days;
@@ -213,7 +288,7 @@ export default function Dashboard() {
             if (!map.has(ev.date)) map.set(ev.date, []);
             map.get(ev.date)!.push(ev);
         });
-        // sort per day: pending first, then by amount desc
+
         for (const [k, arr] of map) {
             arr.sort((a, b) => {
                 if (a.status !== b.status)
@@ -226,26 +301,21 @@ export default function Dashboard() {
     }, [calendar]);
 
     const monthSummary = React.useMemo(() => {
-        // revenue expected in selected month from pending invoices due that month
         const [y, m] = calMonth.split('-').map(Number);
         const start = new Date(y, m - 1, 1).toISOString().slice(0, 10);
         const end = new Date(y, m, 0).toISOString().slice(0, 10);
 
         let pendingDue = 0;
-        let overdueInMonth = 0;
 
         (calendar ?? []).forEach((ev) => {
-            if (ev.date >= start && ev.date <= end) {
-                if (ev.status === 'pending') pendingDue += ev.amount ?? 0;
+            if (ev.date >= start && ev.date <= end && ev.status === 'pending') {
+                pendingDue += ev.amount ?? 0;
             }
         });
 
-        // overdue (today based) from stats
-        overdueInMonth = stats?.overdue_revenue ?? 0;
-
         return {
             pendingDue,
-            overdueInMonth,
+            overdueInMonth: stats?.overdue_revenue ?? 0,
         };
     }, [calMonth, calendar, stats?.overdue_revenue]);
 
@@ -254,584 +324,76 @@ export default function Dashboard() {
         const d = new Date(y, m - 1, 1);
         d.setMonth(d.getMonth() + dir);
         setCalMonth(monthKey(d));
+        setSelectedDay(null);
     };
 
+    const selectedEvents = React.useMemo(() => {
+        if (!selectedDay) return [];
+        return eventsByDate.get(selectedDay) ?? [];
+    }, [selectedDay, eventsByDate]);
+
+    // ---------------------------
+    // Layout: strict heights for consistency
+    // ---------------------------
+    // Main grid rows: do not allow cards to stretch unpredictably.
+    // We enforce "h-full" on card wrappers and fixed inner chart/table heights.
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Dashboard" />
 
             <div className="mx-auto w-full px-4 py-8 sm:px-6">
-                {/* Header */}
-                <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex items-start gap-3">
-                        <div className="grid h-11 w-11 place-items-center rounded-2xl bg-muted">
-                            <TrendingUp className="h-6 w-6 text-foreground/80" />
-                        </div>
-                        <div>
-                            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                                Dashboard
-                            </h1>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                                {company ? (
-                                    <>
-                                        Company:{' '}
-                                        <span className="font-medium text-foreground">
-                                            {company.name}
-                                        </span>
-                                        {stats?.as_of ? (
-                                            <span className="text-muted-foreground">
-                                                {' '}
-                                                • As of {stats.as_of}
-                                            </span>
-                                        ) : null}
-                                    </>
-                                ) : (
-                                    'No active company selected.'
-                                )}
-                            </p>
-                        </div>
-                    </div>
+                <DashboardHeader company={company} stats={stats} />
 
-                    <div className="flex items-center gap-2">
-                        <Button asChild className="rounded-xl">
-                            <Link href="/invoices/create">Create invoice</Link>
-                        </Button>
-                        <Button
-                            variant="outline"
-                            asChild
-                            className="rounded-xl"
-                        >
-                            <Link href="/invoices">View invoices</Link>
-                        </Button>
-                    </div>
-                </div>
-
-                {/* Top stats */}
-                <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
-                    <StatCard
-                        icon={CheckCircle2}
-                        title="Paid revenue"
-                        value={money(stats?.paid_revenue ?? 0)}
-                        sub={`${stats?.paid_count ?? 0} invoices`}
-                    />
-                    <StatCard
-                        icon={Clock3}
-                        title="Pending revenue"
-                        value={money(stats?.pending_revenue ?? 0)}
-                        sub={`${stats?.pending_count ?? 0} invoices`}
-                        tone="amber"
-                    />
-                    <StatCard
-                        icon={FileText}
-                        title="Overdue"
-                        value={money(stats?.overdue_revenue ?? 0)}
-                        sub="Pending past due date"
-                        tone="rose"
-                    />
-                    <StatCard
-                        icon={Users}
-                        title="Clients"
-                        value={`${stats?.client_count ?? 0}`}
-                        sub={`${stats?.total_invoices ?? 0} invoices total`}
-                    />
-                </div>
+                <StatsGrid stats={stats} money={money} />
 
                 <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
-                    {/* Left column: charts */}
                     <div className="space-y-6 lg:col-span-7">
-                        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-                            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                    <div className="text-sm font-semibold">
-                                        Paid vs Pending
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                        Counts and revenue split.
-                                    </div>
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    Paid: {money(stats?.paid_revenue ?? 0)} •
-                                    Pending:{' '}
-                                    {money(stats?.pending_revenue ?? 0)}
-                                </div>
-                            </div>
+                        <PaidPendingCard
+                            paidPendingPie={paidPendingPie}
+                            stats={stats}
+                            money={money}
+                        />
 
-                            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                                <div className="h-[240px]">
-                                    <ResponsiveContainer
-                                        width="100%"
-                                        height="100%"
-                                    >
-                                        <PieChart>
-                                            <Pie
-                                                data={paidPendingPie}
-                                                dataKey="value"
-                                                nameKey="name"
-                                                cx="50%"
-                                                cy="50%"
-                                                outerRadius={80}
-                                                label
-                                            >
-                                                {paidPendingPie.map(
-                                                    (_, idx) => (
-                                                        <Cell
-                                                            key={idx}
-                                                            fill={
-                                                                PIE_COLORS[
-                                                                    idx %
-                                                                        PIE_COLORS.length
-                                                                ]
-                                                            }
-                                                        />
-                                                    ),
-                                                )}
-                                            </Pie>
-                                            <Tooltip
-                                                formatter={(
-                                                    value: any,
-                                                    name: any,
-                                                    props: any,
-                                                ) => {
-                                                    const rev =
-                                                        props?.payload
-                                                            ?.revenue ?? 0;
-                                                    return [
-                                                        `${value} • ${money(rev)}`,
-                                                        name,
-                                                    ];
-                                                }}
-                                            />
-                                            <Legend />
-                                        </PieChart>
-                                    </ResponsiveContainer>
-                                </div>
+                        <MonthlyTrendCard
+                            monthlyTrend={monthlyTrend}
+                            money={money}
+                        />
 
-                                <div className="space-y-3">
-                                    <InsightRow
-                                        label="Due in 7 days"
-                                        value={money(
-                                            stats?.due_in_7_revenue ?? 0,
-                                        )}
-                                        hint="Pending invoices due soon"
-                                    />
-                                    <InsightRow
-                                        label="Overdue"
-                                        value={money(
-                                            stats?.overdue_revenue ?? 0,
-                                        )}
-                                        hint="Pending invoices past due date"
-                                        danger
-                                    />
-                                    <InsightRow
-                                        label="Pending total"
-                                        value={money(
-                                            stats?.pending_revenue ?? 0,
-                                        )}
-                                        hint="All pending invoices"
-                                    />
-                                    <Separator />
-                                    <div className="text-xs text-muted-foreground">
-                                        Tip: keep invoices in{' '}
-                                        <span className="font-medium text-foreground">
-                                            pending
-                                        </span>{' '}
-                                        until you confirm payment.
-                                    </div>
-                                </div>
-                            </div>
-                        </Card>
-
-                        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-                            <div className="mb-4">
-                                <div className="text-sm font-semibold">
-                                    Monthly trend
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    Last 12 months paid vs pending totals (by
-                                    issue date).
-                                </div>
-                            </div>
-
-                            <div className="h-[280px]">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <LineChart data={monthlyTrend}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis
-                                            dataKey="name"
-                                            tick={{ fontSize: 12 }}
-                                            interval={2}
-                                        />
-                                        <YAxis tick={{ fontSize: 12 }} />
-                                        <Tooltip
-                                            formatter={(v: any, k: any) => [
-                                                money(Number(v)),
-                                                String(k).toUpperCase(),
-                                            ]}
-                                        />
-                                        <Legend />
-                                        <Line
-                                            type="monotone"
-                                            dataKey="paid"
-                                            strokeWidth={2}
-                                            dot={false}
-                                        />
-                                        <Line
-                                            type="monotone"
-                                            dataKey="pending"
-                                            strokeWidth={2}
-                                            dot={false}
-                                        />
-                                    </LineChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </Card>
-
-                        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-                            <div className="mb-4">
-                                <div className="text-sm font-semibold">
-                                    Aging buckets
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    Where your receivables are sitting.
-                                </div>
-                            </div>
-
-                            <div className="h-[260px]">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={agingBars}>
-                                        <CartesianGrid strokeDasharray="3 3" />
-                                        <XAxis
-                                            dataKey="name"
-                                            tick={{ fontSize: 12 }}
-                                        />
-                                        <YAxis tick={{ fontSize: 12 }} />
-                                        <Tooltip
-                                            formatter={(
-                                                v: any,
-                                                k: any,
-                                                props: any,
-                                            ) => {
-                                                const c =
-                                                    props?.payload?.count ?? 0;
-                                                return [
-                                                    `${money(Number(v))} • ${c} invoices`,
-                                                    k,
-                                                ];
-                                            }}
-                                        />
-                                        <Legend />
-                                        <Bar dataKey="amount" />
-                                    </BarChart>
-                                </ResponsiveContainer>
-                            </div>
-                        </Card>
+                        <AgingBucketsCard agingBars={agingBars} money={money} />
                     </div>
 
-                    {/* Right column: calendar + lists */}
                     <div className="space-y-6 lg:col-span-5">
-                        {/* Calendar */}
-                        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-                            <div className="mb-4 flex items-start justify-between gap-3">
-                                <div className="flex items-center gap-2">
-                                    <CalendarDays className="h-5 w-5 opacity-80" />
-                                    <div>
-                                        <div className="text-sm font-semibold">
-                                            Due dates calendar
-                                        </div>
-                                        <div className="text-xs text-muted-foreground">
-                                            Revenue to be collected (pending) +
-                                            due schedule.
-                                        </div>
-                                    </div>
-                                </div>
+                        <CalendarCard
+                            calMonth={calMonth}
+                            goMonth={goMonth}
+                            monthSummary={monthSummary}
+                            monthDays={monthDays}
+                            eventsByDate={eventsByDate}
+                            selectedDay={selectedDay}
+                            setSelectedDay={setSelectedDay}
+                            selectedEvents={selectedEvents}
+                            money={money}
+                            baseCurrency={baseCurrency}
+                            todayIso={todayIso}
+                        />
 
-                                <div className="flex items-center gap-2">
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="h-9 rounded-xl px-3"
-                                        onClick={() => goMonth(-1)}
-                                    >
-                                        Prev
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="h-9 rounded-xl px-3"
-                                        onClick={() => goMonth(1)}
-                                    >
-                                        Next
-                                    </Button>
-                                </div>
-                            </div>
+                        <RecentInvoicesCard
+                            invoices={filteredRecent}
+                            tableFilter={tableFilter}
+                            setTableFilter={setTableFilter}
+                            query={query}
+                            setQuery={setQuery}
+                            sortKey={sortKey}
+                            setSortKey={setSortKey}
+                            sortDir={sortDir}
+                            setSortDir={setSortDir}
+                            money={money}
+                        />
 
-                            <div className="mb-4 rounded-2xl border bg-muted/20 p-4">
-                                <div className="text-xs text-muted-foreground">
-                                    Selected month
-                                </div>
-                                <div className="mt-1 text-sm font-semibold">
-                                    {calMonth}
-                                </div>
-                                <div className="mt-2 grid grid-cols-2 gap-3">
-                                    <MiniInfo
-                                        label="Pending due this month"
-                                        value={money(monthSummary.pendingDue)}
-                                    />
-                                    <MiniInfo
-                                        label="Overdue (overall)"
-                                        value={money(
-                                            monthSummary.overdueInMonth,
-                                        )}
-                                        danger
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="grid grid-cols-7 gap-2 text-xs">
-                                {[
-                                    'Mon',
-                                    'Tue',
-                                    'Wed',
-                                    'Thu',
-                                    'Fri',
-                                    'Sat',
-                                    'Sun',
-                                ].map((d) => (
-                                    <div
-                                        key={d}
-                                        className="px-1 text-muted-foreground"
-                                    >
-                                        {d}
-                                    </div>
-                                ))}
-                            </div>
-
-                            <div className="mt-2 grid grid-cols-7 gap-2">
-                                {monthDays.map(({ date, iso }) => {
-                                    const evs = eventsByDate.get(iso) ?? [];
-                                    const [y, m] = calMonth
-                                        .split('-')
-                                        .map(Number);
-                                    const inMonth =
-                                        date.getFullYear() === y &&
-                                        date.getMonth() === m - 1;
-
-                                    const pendingTotal = evs
-                                        .filter((e) => e.status === 'pending')
-                                        .reduce(
-                                            (a, b) => a + (b.amount ?? 0),
-                                            0,
-                                        );
-
-                                    return (
-                                        <div
-                                            key={iso}
-                                            className={cn(
-                                                'min-h-[76px] rounded-xl border p-2',
-                                                !inMonth && 'opacity-50',
-                                            )}
-                                        >
-                                            <div className="flex items-center justify-between">
-                                                <div className="text-xs font-semibold">
-                                                    {date.getDate()}
-                                                </div>
-                                                {evs.length > 0 ? (
-                                                    <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                                                        {evs.length}
-                                                    </span>
-                                                ) : null}
-                                            </div>
-
-                                            {pendingTotal > 0 ? (
-                                                <div className="mt-2 rounded-lg bg-amber-500/10 px-2 py-1 text-[10px] font-semibold text-amber-700">
-                                                    {money(
-                                                        pendingTotal,
-                                                        evs[0]?.currency_code,
-                                                    )}
-                                                </div>
-                                            ) : evs.some(
-                                                  (e) => e.status === 'paid',
-                                              ) ? (
-                                                <div className="mt-2 rounded-lg bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-700">
-                                                    Paid due
-                                                </div>
-                                            ) : null}
-
-                                            {/* show one event quick link */}
-                                            {evs[0] ? (
-                                                <Link
-                                                    href={evs[0].url}
-                                                    className="mt-2 block truncate text-[10px] text-muted-foreground underline-offset-2 hover:underline"
-                                                >
-                                                    {evs[0].title}
-                                                </Link>
-                                            ) : null}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </Card>
-
-                        {/* Recent invoices */}
-                        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-                            <div className="mb-4 flex items-start justify-between gap-3">
-                                <div>
-                                    <div className="text-sm font-semibold">
-                                        Recent invoices
-                                    </div>
-                                    <div className="text-xs text-muted-foreground">
-                                        Quick view of what’s happening now.
-                                    </div>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                    {(['all', 'paid', 'pending'] as const).map(
-                                        (k) => (
-                                            <button
-                                                key={k}
-                                                type="button"
-                                                onClick={() =>
-                                                    setTableFilter(k)
-                                                }
-                                                className={cn(
-                                                    'rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
-                                                    tableFilter === k
-                                                        ? 'bg-foreground text-background'
-                                                        : 'bg-background hover:bg-muted/40',
-                                                )}
-                                            >
-                                                {k === 'all' ? 'All' : k}
-                                            </button>
-                                        ),
-                                    )}
-                                </div>
-                            </div>
-
-                            <div className="overflow-x-auto">
-                                <table className="min-w-full text-sm">
-                                    <thead>
-                                        <tr className="border-b text-left text-xs text-muted-foreground">
-                                            <th className="py-2 pr-4">
-                                                Invoice
-                                            </th>
-                                            <th className="py-2 pr-4">
-                                                Client
-                                            </th>
-                                            <th className="py-2 pr-4">Due</th>
-                                            <th className="py-2 pr-4 text-right">
-                                                Total
-                                            </th>
-                                            <th className="py-2 pr-0 text-right">
-                                                Status
-                                            </th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        {filteredRecent.length ? (
-                                            filteredRecent.map((inv) => (
-                                                <tr
-                                                    key={inv.id}
-                                                    className="border-b last:border-0"
-                                                >
-                                                    <td className="py-2 pr-4">
-                                                        <Link
-                                                            href={`/invoices/${inv.id}`}
-                                                            className="font-semibold underline-offset-2 hover:underline"
-                                                        >
-                                                            {inv.number ??
-                                                                `#${inv.id}`}
-                                                        </Link>
-                                                        <div className="text-xs text-muted-foreground">
-                                                            Issued{' '}
-                                                            {inv.issue_date}
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-2 pr-4">
-                                                        {inv.client?.name ??
-                                                            '—'}
-                                                    </td>
-                                                    <td className="py-2 pr-4">
-                                                        {inv.due_date ?? '—'}
-                                                    </td>
-                                                    <td className="py-2 pr-4 text-right font-semibold">
-                                                        {money(
-                                                            inv.total,
-                                                            inv.currency_code,
-                                                        )}
-                                                    </td>
-                                                    <td className="py-2 pr-0 text-right">
-                                                        <StatusPill
-                                                            status={inv.status}
-                                                        />
-                                                    </td>
-                                                </tr>
-                                            ))
-                                        ) : (
-                                            <tr>
-                                                <td
-                                                    colSpan={5}
-                                                    className="py-6 text-center text-sm text-muted-foreground"
-                                                >
-                                                    No invoices found.
-                                                </td>
-                                            </tr>
-                                        )}
-                                    </tbody>
-                                </table>
-                            </div>
-
-                            <div className="mt-4 flex items-center justify-between">
-                                <div className="text-xs text-muted-foreground">
-                                    Showing {filteredRecent.length} invoices
-                                </div>
-                                <Button
-                                    variant="outline"
-                                    asChild
-                                    className="rounded-xl"
-                                >
-                                    <Link href="/invoices">Open invoices</Link>
-                                </Button>
-                            </div>
-                        </Card>
-
-                        {/* Top clients */}
-                        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-                            <div className="mb-4">
-                                <div className="text-sm font-semibold">
-                                    Top clients (pending)
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    Biggest outstanding balances right now.
-                                </div>
-                            </div>
-
-                            <div className="space-y-3">
-                                {(top_clients ?? []).length ? (
-                                    top_clients.map((c) => (
-                                        <div
-                                            key={c.client_id}
-                                            className="flex items-center justify-between rounded-xl border p-3"
-                                        >
-                                            <div className="min-w-0">
-                                                <div className="truncate text-sm font-semibold">
-                                                    {c.name}
-                                                </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    Outstanding
-                                                </div>
-                                            </div>
-                                            <div className="text-sm font-semibold">
-                                                {money(c.pending_total)}
-                                            </div>
-                                        </div>
-                                    ))
-                                ) : (
-                                    <div className="rounded-xl border p-4 text-sm text-muted-foreground">
-                                        No pending balances yet.
-                                    </div>
-                                )}
-                            </div>
-                        </Card>
+                        <TopClientsCard
+                            topClients={top_clients ?? []}
+                            money={money}
+                        />
                     </div>
                 </div>
             </div>
@@ -839,6 +401,747 @@ export default function Dashboard() {
     );
 }
 
+/* -----------------------------------------
+   Header
+------------------------------------------ */
+function DashboardHeader({
+    company,
+    stats,
+}: {
+    company: { id: number; name: string } | null;
+    stats: DashboardStats | null;
+}) {
+    return (
+        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-3">
+                <div className="grid h-11 w-11 place-items-center rounded-2xl bg-muted">
+                    <TrendingUp className="h-6 w-6 text-foreground/80" />
+                </div>
+                <div>
+                    <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+                        Dashboard
+                    </h1>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                        {company ? (
+                            <>
+                                Company:{' '}
+                                <span className="font-medium text-foreground">
+                                    {company.name}
+                                </span>
+                                {stats?.as_of ? (
+                                    <span className="text-muted-foreground">
+                                        {' '}
+                                        • As of {stats.as_of}
+                                    </span>
+                                ) : null}
+                            </>
+                        ) : (
+                            'No active company selected.'
+                        )}
+                    </p>
+                </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+                <Button asChild className="rounded-xl">
+                    <Link href="/invoices/create">Create invoice</Link>
+                </Button>
+                <Button variant="outline" asChild className="rounded-xl">
+                    <Link href="/invoices">View invoices</Link>
+                </Button>
+            </div>
+        </div>
+    );
+}
+
+/* -----------------------------------------
+   Stats Grid
+------------------------------------------ */
+function StatsGrid({
+    stats,
+    money,
+}: {
+    stats: DashboardStats | null;
+    money: (n: number, code?: string) => string;
+}) {
+    return (
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+            <StatCard
+                icon={CheckCircle2}
+                title="Paid revenue"
+                value={money(stats?.paid_revenue ?? 0)}
+                sub={`${stats?.paid_count ?? 0} invoices`}
+            />
+            <StatCard
+                icon={Clock3}
+                title="Pending revenue"
+                value={money(stats?.pending_revenue ?? 0)}
+                sub={`${stats?.pending_count ?? 0} invoices`}
+                tone="amber"
+            />
+            <StatCard
+                icon={FileText}
+                title="Overdue"
+                value={money(stats?.overdue_revenue ?? 0)}
+                sub="Pending past due date"
+                tone="rose"
+            />
+            <StatCard
+                icon={Users}
+                title="Clients"
+                value={`${stats?.client_count ?? 0}`}
+                sub={`${stats?.total_invoices ?? 0} invoices total`}
+            />
+        </div>
+    );
+}
+
+/* -----------------------------------------
+   Paid vs Pending Card (fixed height)
+------------------------------------------ */
+function PaidPendingCard({
+    paidPendingPie,
+    stats,
+    money,
+}: {
+    paidPendingPie: Array<{ name: string; value: number; revenue: number }>;
+    stats: DashboardStats | null;
+    money: (n: number, code?: string) => string;
+}) {
+    return (
+        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
+            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                    <div className="text-sm font-semibold">Paid vs Pending</div>
+                    <div className="text-xs text-muted-foreground">
+                        Counts and revenue split.
+                    </div>
+                </div>
+                <div className="text-xs text-muted-foreground">
+                    Paid: {money(stats?.paid_revenue ?? 0)} • Pending:{' '}
+                    {money(stats?.pending_revenue ?? 0)}
+                </div>
+            </div>
+
+            {/* strict consistent height */}
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
+                <div className="h-[240px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                            <Pie
+                                data={paidPendingPie}
+                                dataKey="value"
+                                nameKey="name"
+                                cx="50%"
+                                cy="50%"
+                                outerRadius={80}
+                                label
+                            >
+                                {paidPendingPie.map((_, idx) => (
+                                    <Cell
+                                        key={idx}
+                                        fill={
+                                            PIE_COLORS[idx % PIE_COLORS.length]
+                                        }
+                                    />
+                                ))}
+                            </Pie>
+                            <Tooltip
+                                formatter={(
+                                    value: any,
+                                    name: any,
+                                    props: any,
+                                ) => {
+                                    const rev = props?.payload?.revenue ?? 0;
+                                    return [`${value} • ${money(rev)}`, name];
+                                }}
+                            />
+                            <Legend />
+                        </PieChart>
+                    </ResponsiveContainer>
+                </div>
+
+                <div className="flex h-[240px] flex-col gap-3 overflow-hidden">
+                    <InsightRow
+                        label="Due in 7 days"
+                        value={money(stats?.due_in_7_revenue ?? 0)}
+                        hint="Pending invoices due soon"
+                    />
+                    <InsightRow
+                        label="Overdue"
+                        value={money(stats?.overdue_revenue ?? 0)}
+                        hint="Pending invoices past due date"
+                        danger
+                    />
+                    <InsightRow
+                        label="Pending total"
+                        value={money(stats?.pending_revenue ?? 0)}
+                        hint="All pending invoices"
+                    />
+                    <div className="mt-auto text-xs text-muted-foreground">
+                        Tip: keep invoices{' '}
+                        <span className="font-medium text-foreground">
+                            pending
+                        </span>{' '}
+                        until payment is confirmed.
+                    </div>
+                </div>
+            </div>
+        </Card>
+    );
+}
+
+/* -----------------------------------------
+   Monthly Trend Card (fixed height)
+------------------------------------------ */
+function MonthlyTrendCard({
+    monthlyTrend,
+    money,
+}: {
+    monthlyTrend: Array<{ name: string; paid: number; pending: number }>;
+    money: (n: number, code?: string) => string;
+}) {
+    return (
+        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
+            <div className="mb-4">
+                <div className="text-sm font-semibold">Monthly trend</div>
+                <div className="text-xs text-muted-foreground">
+                    Last 12 months paid vs pending totals.
+                </div>
+            </div>
+
+            <div className="h-[280px]">
+                <ResponsiveContainer width="100%" height="100%">
+                    <LineChart data={monthlyTrend}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis
+                            dataKey="name"
+                            tick={{ fontSize: 12 }}
+                            interval={2}
+                        />
+                        <YAxis tick={{ fontSize: 12 }} />
+                        <Tooltip
+                            formatter={(v: any, k: any) => [
+                                money(Number(v)),
+                                String(k).toUpperCase(),
+                            ]}
+                        />
+                        <Legend />
+                        <Line
+                            type="monotone"
+                            dataKey="paid"
+                            strokeWidth={2}
+                            dot={false}
+                        />
+                        <Line
+                            type="monotone"
+                            dataKey="pending"
+                            strokeWidth={2}
+                            dot={false}
+                        />
+                    </LineChart>
+                </ResponsiveContainer>
+            </div>
+        </Card>
+    );
+}
+
+/* -----------------------------------------
+   Aging Buckets Card (fixed height)
+------------------------------------------ */
+function AgingBucketsCard({
+    agingBars,
+    money,
+}: {
+    agingBars: Array<{ name: string; amount: number; count: number }>;
+    money: (n: number, code?: string) => string;
+}) {
+    return (
+        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
+            <div className="mb-4">
+                <div className="text-sm font-semibold">Aging buckets</div>
+                <div className="text-xs text-muted-foreground">
+                    Where your receivables are sitting.
+                </div>
+            </div>
+
+            <div className="h-[260px]">
+                <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={agingBars}>
+                        <CartesianGrid strokeDasharray="3 3" />
+                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
+                        <YAxis tick={{ fontSize: 12 }} />
+                        <Tooltip
+                            formatter={(v: any, k: any, props: any) => {
+                                const c = props?.payload?.count ?? 0;
+                                return [
+                                    `${money(Number(v))} • ${c} invoices`,
+                                    k,
+                                ];
+                            }}
+                        />
+                        <Legend />
+                        <Bar dataKey="amount" />
+                    </BarChart>
+                </ResponsiveContainer>
+            </div>
+        </Card>
+    );
+}
+
+/* -----------------------------------------
+   Calendar Card + Drawer (no overflow past card)
+------------------------------------------ */
+function CalendarCard({
+    calMonth,
+    goMonth,
+    monthSummary,
+    monthDays,
+    eventsByDate,
+    selectedDay,
+    setSelectedDay,
+    selectedEvents,
+    money,
+    baseCurrency,
+    todayIso,
+}: {
+    calMonth: string;
+    goMonth: (dir: -1 | 1) => void;
+    monthSummary: { pendingDue: number; overdueInMonth: number };
+    monthDays: Array<{ date: Date; iso: string }>;
+    eventsByDate: Map<string, CalendarEvent[]>;
+    selectedDay: string | null;
+    setSelectedDay: (d: string | null) => void;
+    selectedEvents: CalendarEvent[];
+    money: (n: number, code?: string) => string;
+    baseCurrency: string;
+    todayIso: string;
+}) {
+    return (
+        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
+            <div className="mb-4 flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2">
+                    <CalendarDays className="h-5 w-5 opacity-80" />
+                    <div>
+                        <div className="text-sm font-semibold">
+                            Due dates calendar
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                            Click a day to see invoices due.
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-2">
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 rounded-xl px-3"
+                        onClick={() => goMonth(-1)}
+                    >
+                        Prev
+                    </Button>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        className="h-9 rounded-xl px-3"
+                        onClick={() => goMonth(1)}
+                    >
+                        Next
+                    </Button>
+                </div>
+            </div>
+
+            <div className="mb-4 rounded-2xl border bg-muted/20 p-4">
+                <div className="text-xs text-muted-foreground">
+                    Selected month
+                </div>
+                <div className="mt-1 text-sm font-semibold">{calMonth}</div>
+                <div className="mt-2 grid grid-cols-2 gap-3">
+                    <MiniInfo
+                        label="Pending due this month"
+                        value={money(monthSummary.pendingDue, baseCurrency)}
+                    />
+                    <MiniInfo
+                        label="Overdue (overall)"
+                        value={money(monthSummary.overdueInMonth, baseCurrency)}
+                        danger
+                    />
+                </div>
+            </div>
+
+            <div className="grid grid-cols-7 gap-2 text-xs">
+                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
+                    <div key={d} className="px-1 text-muted-foreground">
+                        {d}
+                    </div>
+                ))}
+            </div>
+
+            {/* calendar grid + drawer share consistent vertical space */}
+            <div className="mt-2 grid grid-cols-1 gap-4">
+                <div className="grid grid-cols-7 gap-2">
+                    {monthDays.map(({ date, iso }) => {
+                        const evs = eventsByDate.get(iso) ?? [];
+                        const [y, m] = calMonth.split('-').map(Number);
+                        const inMonth =
+                            date.getFullYear() === y &&
+                            date.getMonth() === m - 1;
+
+                        const pendingTotal = evs
+                            .filter((e) => e.status === 'pending')
+                            .reduce((a, b) => a + (b.amount ?? 0), 0);
+
+                        const isToday = iso === todayIso;
+                        const isSelected = selectedDay === iso;
+
+                        return (
+                            <button
+                                key={iso}
+                                type="button"
+                                onClick={() =>
+                                    setSelectedDay(isSelected ? null : iso)
+                                }
+                                className={cn(
+                                    'min-h-[76px] rounded-xl border p-2 text-left transition',
+                                    !inMonth && 'opacity-50',
+                                    isToday && 'border-foreground/40',
+                                    isSelected && 'bg-muted/40',
+                                    'hover:bg-muted/30',
+                                )}
+                            >
+                                <div className="flex items-center justify-between">
+                                    <div className="text-xs font-semibold">
+                                        {date.getDate()}
+                                    </div>
+                                    {evs.length > 0 ? (
+                                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
+                                            {evs.length}
+                                        </span>
+                                    ) : null}
+                                </div>
+
+                                {pendingTotal > 0 ? (
+                                    <div className="mt-2 rounded-lg bg-amber-500/10 px-2 py-1 text-[10px] font-semibold text-amber-700">
+                                        {money(
+                                            pendingTotal,
+                                            evs[0]?.currency_code,
+                                        )}
+                                    </div>
+                                ) : evs.some((e) => e.status === 'paid') ? (
+                                    <div className="mt-2 rounded-lg bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-700">
+                                        Paid due
+                                    </div>
+                                ) : null}
+
+                                {evs[0] ? (
+                                    <div className="mt-2 truncate text-[10px] text-muted-foreground">
+                                        {evs[0].title}
+                                    </div>
+                                ) : null}
+                            </button>
+                        );
+                    })}
+                </div>
+
+                {/* Drawer (bounded, never exceeds card space because content is capped) */}
+                <div className="rounded-2xl border p-4">
+                    <div className="mb-2 flex items-center justify-between">
+                        <div className="text-sm font-semibold">
+                            {selectedDay
+                                ? `Due on ${selectedDay}`
+                                : 'Select a day'}
+                        </div>
+                        {selectedDay ? (
+                            <Button
+                                type="button"
+                                variant="outline"
+                                className="h-8 rounded-xl px-3 text-xs"
+                                onClick={() => setSelectedDay(null)}
+                            >
+                                Clear
+                            </Button>
+                        ) : null}
+                    </div>
+
+                    {selectedDay ? (
+                        <div className="max-h-[220px] space-y-2 overflow-auto pr-1">
+                            {selectedEvents.length ? (
+                                selectedEvents.map((ev) => (
+                                    <Link
+                                        key={ev.id}
+                                        href={ev.url}
+                                        className="flex items-center justify-between rounded-xl border p-3 transition hover:bg-muted/30"
+                                    >
+                                        <div className="min-w-0">
+                                            <div className="truncate text-sm font-semibold">
+                                                {ev.title}
+                                            </div>
+                                            <div className="mt-1 text-xs text-muted-foreground">
+                                                <StatusPill
+                                                    status={ev.status}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="shrink-0 text-sm font-semibold">
+                                            {money(ev.amount, ev.currency_code)}
+                                        </div>
+                                    </Link>
+                                ))
+                            ) : (
+                                <div className="rounded-xl border p-4 text-sm text-muted-foreground">
+                                    No invoices due on this day.
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <div className="text-sm text-muted-foreground">
+                            Tip: you can use this to plan collections and spot
+                            due spikes.
+                        </div>
+                    )}
+                </div>
+            </div>
+        </Card>
+    );
+}
+
+/* -----------------------------------------
+   Recent Invoices Card (bounded heights)
+------------------------------------------ */
+function RecentInvoicesCard({
+    invoices,
+    tableFilter,
+    setTableFilter,
+    query,
+    setQuery,
+    sortKey,
+    setSortKey,
+    sortDir,
+    setSortDir,
+    money,
+}: {
+    invoices: RecentInvoice[];
+    tableFilter: 'all' | 'paid' | 'pending' | 'overdue';
+    setTableFilter: (v: 'all' | 'paid' | 'pending' | 'overdue') => void;
+    query: string;
+    setQuery: (v: string) => void;
+    sortKey: 'due_date' | 'total' | 'status';
+    setSortKey: (v: 'due_date' | 'total' | 'status') => void;
+    sortDir: 'asc' | 'desc';
+    setSortDir: (v: 'asc' | 'desc') => void;
+    money: (n: number, code?: string) => string;
+}) {
+    const toggleSort = (k: 'due_date' | 'total' | 'status') => {
+        if (sortKey !== k) {
+            setSortKey(k);
+            setSortDir('asc');
+            return;
+        }
+        setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
+    };
+
+    return (
+        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
+            <div className="mb-4 flex flex-col gap-3">
+                <div className="flex items-start justify-between gap-3">
+                    <div>
+                        <div className="text-sm font-semibold">
+                            Recent invoices
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                            Search, filter, and sort.
+                        </div>
+                    </div>
+
+                    <Button variant="outline" asChild className="rounded-xl">
+                        <Link href="/invoices">Open invoices</Link>
+                    </Button>
+                </div>
+
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-2">
+                        {(['all', 'paid', 'pending', 'overdue'] as const).map(
+                            (k) => (
+                                <button
+                                    key={k}
+                                    type="button"
+                                    onClick={() => setTableFilter(k)}
+                                    className={cn(
+                                        'rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
+                                        tableFilter === k
+                                            ? 'bg-foreground text-background'
+                                            : 'bg-background hover:bg-muted/40',
+                                    )}
+                                >
+                                    {k === 'all' ? 'All' : k}
+                                </button>
+                            ),
+                        )}
+                    </div>
+
+                    <div className="relative w-full sm:w-[260px]">
+                        <Search className="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-muted-foreground" />
+                        <Input
+                            value={query}
+                            onChange={(e) => setQuery(e.target.value)}
+                            className="h-9 rounded-xl pl-9"
+                            placeholder="Search invoice or client..."
+                        />
+                    </div>
+                </div>
+            </div>
+
+            {/* table wrapper has max height -> consistent with other cards */}
+            <div className="max-h-[320px] overflow-auto pr-1">
+                <table className="min-w-full text-sm">
+                    <thead className="sticky top-0 bg-background">
+                        <tr className="border-b text-left text-xs text-muted-foreground">
+                            <th className="py-2 pr-4">Invoice</th>
+                            <th className="py-2 pr-4">Client</th>
+                            <th
+                                className="cursor-pointer py-2 pr-4 select-none"
+                                onClick={() => toggleSort('due_date')}
+                            >
+                                Due{' '}
+                                {sortKey === 'due_date'
+                                    ? sortDir === 'asc'
+                                        ? '↑'
+                                        : '↓'
+                                    : ''}
+                            </th>
+                            <th
+                                className="cursor-pointer py-2 pr-4 text-right select-none"
+                                onClick={() => toggleSort('total')}
+                            >
+                                Total{' '}
+                                {sortKey === 'total'
+                                    ? sortDir === 'asc'
+                                        ? '↑'
+                                        : '↓'
+                                    : ''}
+                            </th>
+                            <th
+                                className="cursor-pointer py-2 pr-0 text-right select-none"
+                                onClick={() => toggleSort('status')}
+                            >
+                                Status{' '}
+                                {sortKey === 'status'
+                                    ? sortDir === 'asc'
+                                        ? '↑'
+                                        : '↓'
+                                    : ''}
+                            </th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {invoices.length ? (
+                            invoices.map((inv) => (
+                                <tr
+                                    key={inv.id}
+                                    className="border-b last:border-0"
+                                >
+                                    <td className="py-2 pr-4">
+                                        <Link
+                                            href={`/invoices/${inv.id}`}
+                                            className="font-semibold underline-offset-2 hover:underline"
+                                        >
+                                            {inv.number ?? `#${inv.id}`}
+                                        </Link>
+                                        <div className="text-xs text-muted-foreground">
+                                            Issued {inv.issue_date}
+                                        </div>
+                                    </td>
+                                    <td className="py-2 pr-4">
+                                        {inv.client?.name ?? '—'}
+                                    </td>
+                                    <td className="py-2 pr-4">
+                                        {inv.due_date ?? '—'}
+                                    </td>
+                                    <td className="py-2 pr-4 text-right font-semibold">
+                                        {money(inv.total, inv.currency_code)}
+                                    </td>
+                                    <td className="py-2 pr-0 text-right">
+                                        <StatusPill status={inv.status} />
+                                    </td>
+                                </tr>
+                            ))
+                        ) : (
+                            <tr>
+                                <td
+                                    colSpan={5}
+                                    className="py-8 text-center text-sm text-muted-foreground"
+                                >
+                                    No invoices found.
+                                </td>
+                            </tr>
+                        )}
+                    </tbody>
+                </table>
+            </div>
+
+            <div className="mt-4 text-xs text-muted-foreground">
+                Showing {invoices.length} invoices
+            </div>
+        </Card>
+    );
+}
+
+/* -----------------------------------------
+   Top Clients Card (bounded, consistent)
+------------------------------------------ */
+function TopClientsCard({
+    topClients,
+    money,
+}: {
+    topClients: TopClient[];
+    money: (n: number, code?: string) => string;
+}) {
+    return (
+        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
+            <div className="mb-4">
+                <div className="text-sm font-semibold">
+                    Top clients (pending)
+                </div>
+                <div className="text-xs text-muted-foreground">
+                    Biggest outstanding balances right now.
+                </div>
+            </div>
+
+            <div className="max-h-[260px] space-y-3 overflow-auto pr-1">
+                {topClients.length ? (
+                    topClients.map((c) => (
+                        <Link
+                            key={c.client_id}
+                            href={`/invoices?client_id=${c.client_id}&status=pending`}
+                            className="flex items-center justify-between rounded-xl border p-3 transition hover:bg-muted/30"
+                        >
+                            <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold">
+                                    {c.name}
+                                </div>
+                                <div className="text-xs text-muted-foreground">
+                                    Outstanding
+                                </div>
+                            </div>
+                            <div className="text-sm font-semibold">
+                                {money(c.pending_total)}
+                            </div>
+                        </Link>
+                    ))
+                ) : (
+                    <div className="rounded-xl border p-4 text-sm text-muted-foreground">
+                        No pending balances yet.
+                    </div>
+                )}
+            </div>
+        </Card>
+    );
+}
+
+/* -----------------------------------------
+   Shared UI pieces
+------------------------------------------ */
 function StatCard({
     icon: Icon,
     title,

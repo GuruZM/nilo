@@ -1,6 +1,12 @@
 import AppLayout from '@/layouts/app-layout';
 import { Head } from '@inertiajs/react';
+import { type BreadcrumbItem } from '@/types/index.d';
 import { useState } from 'react';
+
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Invoices', href: '/invoices' },
+    { title: 'Create', href: '/invoices/create' },
+];
 
 export default function InvoiceBuilder() {
     const [items, setItems] = useState([
@@ -27,7 +33,7 @@ export default function InvoiceBuilder() {
     );
 
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Create Invoice" />
             <div className="mx-auto max-w-2xl rounded bg-white p-6 shadow">
                 <h1 className="mb-4 text-2xl font-bold">Create Invoice</h1>

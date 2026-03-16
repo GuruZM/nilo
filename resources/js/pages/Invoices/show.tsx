@@ -1,7 +1,14 @@
 // resources/js/Pages/Invoices/Show.tsx
 import { Head, router, usePage } from '@inertiajs/react';
 import { motion } from 'framer-motion';
-import { CheckCircle2, Eye, FileText, Printer, RefreshCw } from 'lucide-react';
+import {
+    CheckCircle2,
+    Download,
+    Eye,
+    FileText,
+    Printer,
+    RefreshCw,
+} from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 
@@ -93,6 +100,14 @@ export default function InvoiceShow({ invoice }: { invoice: Invoice }) {
         );
     };
 
+    const downloadPdf = () => {
+        window.open(
+            `/invoices/${invoice.id}/print?download=1`,
+            '_blank',
+            'noopener,noreferrer',
+        );
+    };
+
     const toggleStatus = () => {
         const nextStatus = invoice.status === 'paid' ? 'pending' : 'paid';
 
@@ -176,6 +191,16 @@ export default function InvoiceShow({ invoice }: { invoice: Invoice }) {
                         >
                             <Printer className="h-4 w-4" />
                             Print
+                        </Button>
+
+                        <Button
+                            type="button"
+                            variant="outline"
+                            onClick={downloadPdf}
+                            className="gap-2 rounded-xl"
+                        >
+                            <Download className="h-4 w-4" />
+                            Download PDF
                         </Button>
 
                         <Button

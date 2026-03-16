@@ -2,20 +2,11 @@ import Heading from '@/components/heading';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import { edit as editAppearance } from '@/routes/appearance';
 import { edit as editPassword } from '@/routes/password';
 import { edit } from '@/routes/profile';
-import { show } from '@/routes/two-factor';
 import { type NavItem } from '@/types/index.d';
 import { Link } from '@inertiajs/react';
-import {
-    Coins,
-    KeyRound,
-    LayoutTemplate,
-    Palette,
-    ShieldCheck,
-    User,
-} from 'lucide-react';
+import { KeyRound, User } from 'lucide-react';
 import { type PropsWithChildren } from 'react';
 
 const sidebarNavItems: NavItem[] = [
@@ -28,28 +19,6 @@ const sidebarNavItems: NavItem[] = [
         title: 'Password',
         href: editPassword(),
         icon: KeyRound,
-    },
-    {
-        title: 'Two-Factor Auth',
-        href: show(),
-        icon: ShieldCheck,
-    },
-    {
-        title: 'Appearance',
-        href: editAppearance(),
-        icon: Palette,
-    },
-    {
-        title: 'Currencies',
-        href: '/settings/currencies',
-        icon: Coins,
-    },
-
-    // ✅ Invoice Templates (explicit)
-    {
-        title: 'Invoice Templates',
-        href: '/settings/invoice-templates',
-        icon: LayoutTemplate,
     },
 ];
 
@@ -65,7 +34,7 @@ export default function SettingsLayout({ children }: PropsWithChildren) {
         <div className="px-4 py-6">
             <Heading
                 title="Settings"
-                description="Manage your profile and account settings"
+                description="Manage your profile and account access"
             />
 
             <div className="flex flex-col lg:flex-row lg:space-x-12">

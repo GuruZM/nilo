@@ -6,11 +6,14 @@ use Illuminate\Database\Eloquent\Model;
 
 class InvoiceTemplate extends Model
 {
-     protected $fillable = [
+    protected $fillable = [
         'company_id',
+        'type',
         'name',
         'is_default',
         'settings',
+        'terms_html',
+        'footer_html',
     ];
 
     protected $casts = [

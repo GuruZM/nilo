@@ -14,11 +14,6 @@ import { Card } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 
-const breadcrumbs: BreadcrumbItem[] = [
-    { title: 'Settings', href: '/settings/profile' },
-    { title: 'Invoice templates', href: '/settings/invoice-templates' },
-];
-
 type Template = {
     id: number;
     name: string;
@@ -26,12 +21,29 @@ type Template = {
     created_at: string;
 };
 
+type TemplateModule = {
+    type: 'invoice' | 'quotation';
+    singularTitle: string;
+    pluralTitle: string;
+    basePath: string;
+    createPath: string;
+};
+
 export default function InvoiceTemplatesIndex({
     templates,
+    module,
 }: {
     templates: Template[];
+    module: TemplateModule;
 }) {
     const page = usePage() as any;
+    const singularLabel = module.singularTitle.toLowerCase();
+    const pluralLabel = module.pluralTitle.toLowerCase();
+
+    const breadcrumbs: BreadcrumbItem[] = [
+        { title: 'Settings', href: '/settings/profile' },
+        { title: module.pluralTitle, href: module.basePath },
+    ];
 
     // Optional: show flash toasts globally if you aren’t already
     React.useEffect(() => {
@@ -50,11 +62,12 @@ export default function InvoiceTemplatesIndex({
 
     const makeDefault = (id: number) => {
         router.post(
-            `/settings/invoice-templates/${id}/default`,
+            `${module.basePath}/${id}/default`,
             {},
             {
                 preserveScroll: true,
-                onSuccess: () => toast.success('Default template updated.'),
+                onSuccess: () =>
+                    toast.success(`Default ${singularLabel} updated.`),
                 onError: (errors) =>
                     toast.error(errors?.template || 'Failed to set default.'),
             },
@@ -63,7 +76,7 @@ export default function InvoiceTemplatesIndex({
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
-            <Head title="Invoice templates" />
+            <Head title={module.pluralTitle} />
 
             <SettingsLayout>
                 <motion.div
@@ -75,8 +88,8 @@ export default function InvoiceTemplatesIndex({
                     <div className="flex items-start justify-between gap-4">
                         <div className="space-y-1">
                             <HeadingSmall
-                                title="Invoice templates"
-                                description="Create and customize invoice templates for the active company."
+                                title={module.pluralTitle}
+                                description={`Create and customize ${pluralLabel} for the active company.`}
                             />
                         </div>
 
@@ -84,7 +97,7 @@ export default function InvoiceTemplatesIndex({
                             asChild
                             className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
                         >
-                            <Link href="/settings/invoice-templates/create">
+                            <Link href={module.createPath}>
                                 <Plus className="h-4 w-4" />
                                 New template
                             </Link>
@@ -101,18 +114,20 @@ export default function InvoiceTemplatesIndex({
                                 </div>
                                 <div className="space-y-1">
                                     <div className="text-sm font-semibold">
-                                        No invoice templates yet
+                                        No {pluralLabel} yet
                                     </div>
                                     <div className="text-sm text-muted-foreground">
-                                        Create your first template to unlock
-                                        invoice ; and PDF generation later.
+                                        Create your first {singularLabel} to
+                                        keep your{' '}
+                                        {module.type === 'quotation'
+                                            ? 'quotations'
+                                            : 'invoices'}{' '}
+                                        consistently branded.
                                     </div>
                                     <Button
                                         className="mt-3 gap-2 rounded-xl"
                                         onClick={() =>
-                                            router.visit(
-                                                '/settings/invoice-templates/create',
-                                            )
+                                            router.visit(module.createPath)
                                         }
                                     >
                                         <Plus className="h-4 w-4" />
@@ -166,7 +181,7 @@ export default function InvoiceTemplatesIndex({
                                                     asChild
                                                 >
                                                     <Link
-                                                        href={`/settings/invoice-templates/${t.id}/edit`}
+                                                        href={`${module.basePath}/${t.id}/edit`}
                                                     >
                                                         Edit
                                                     </Link>

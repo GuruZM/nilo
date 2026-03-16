@@ -24,6 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { type BreadcrumbItem } from '@/types/index.d';
 
 const pageEnter = {
     hidden: { opacity: 0, y: 14 },
@@ -38,6 +39,11 @@ const sectionEnter = (delay = 0) => ({
         transition: { duration: 0.3, ease: 'easeOut', delay },
     },
 });
+
+const breadcrumbs: BreadcrumbItem[] = [
+    { title: 'Clients', href: '/clients' },
+    { title: 'Create', href: '/clients/create' },
+];
 
 export default function ClientsCreate() {
     const form = useForm({
@@ -76,7 +82,7 @@ export default function ClientsCreate() {
     const goBack = () => window.history.back();
 
     return (
-        <AppLayout>
+        <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Create Client" />
 
             <motion.div
