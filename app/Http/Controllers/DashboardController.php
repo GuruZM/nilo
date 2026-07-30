@@ -7,6 +7,7 @@ use App\Models\Company;
 use App\Models\Currency;
 use App\Models\Invoice;
 use App\Services\CurrencyRollup;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,41 @@ use Inertia\Inertia;
 
 class DashboardController extends Controller
 {
+    /**
+     * Money still owed on a set of invoices, in the rollup's display currency.
+     *
+     * An invoice's total is what it was billed for, not what is left on it, so
+     * the ledger comes off each invoice before anything is added up. The
+     * subtraction happens in the invoice's own currency and the *remainder* is
+     * converted — a payment is received in the currency the invoice was raised
+     * in, so converting the total and deducting afterwards would be arithmetic
+     * across two currencies.
+     *
+     * `withSum` keeps the ledger a correlated subquery rather than one query
+     * per invoice.
+     */
+    private function outstandingBalance(Builder $query, CurrencyRollup $rollup): float
+    {
+        return (float) $query
+            ->withSum('payments as paid_sum', 'amount')
+            ->get()
+            ->sum(fn (Invoice $invoice) => $rollup->convert(
+                $this->unpaidRemainder($invoice),
+                (string) $invoice->currency_code,
+            ));
+    }
+
+    /**
+     * What is left on one invoice, in its own currency. Requires `paid_sum`.
+     *
+     * Floored at zero: an overpayment settles the invoice, it does not turn
+     * into negative money owed elsewhere on the dashboard.
+     */
+    private function unpaidRemainder(Invoice $invoice): float
+    {
+        return max(0, (float) $invoice->total - (float) ($invoice->paid_sum ?? 0));
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -74,17 +110,19 @@ class DashboardController extends Controller
         $rollup = CurrencyRollup::into($displayCode, (int) $companyId);
 
         $paidRevenue = $rollup->sum((clone $base)->paid());
-        $pendingRevenue = $rollup->sum((clone $base)->outstanding());
 
-        $overdueRevenue = $rollup->sum((clone $base)
+        /** Every outstanding figure is net of what has already been settled. */
+        $pendingRevenue = $this->outstandingBalance((clone $base)->outstanding(), $rollup);
+
+        $overdueRevenue = $this->outstandingBalance((clone $base)
             ->outstanding()
             ->whereNotNull('due_date')
-            ->whereDate('due_date', '<', $today));
+            ->whereDate('due_date', '<', $today), $rollup);
 
-        $dueIn7Revenue = $rollup->sum((clone $base)
+        $dueIn7Revenue = $this->outstandingBalance((clone $base)
             ->outstanding()
             ->whereNotNull('due_date')
-            ->whereBetween(DB::raw('DATE(due_date)'), [$today->toDateString(), $in7->toDateString()]));
+            ->whereBetween(DB::raw('DATE(due_date)'), [$today->toDateString(), $in7->toDateString()]), $rollup);
 
         $clientCount = (int) Client::query()
             ->where('company_id', $companyId)
@@ -109,7 +147,8 @@ class DashboardController extends Controller
         // aggregation stays portable across database drivers (Postgres + SQLite).
         $trendInvoices = (clone $base)
             ->whereDate('issue_date', '>=', $start12->toDateString())
-            ->get(['issue_date', 'status', 'total', 'currency_code', 'exchange_rate_to_base']);
+            ->withSum('payments as paid_sum', 'amount')
+            ->get();
 
         $paidByMonth = [];
         $pendingByMonth = [];
@@ -121,16 +160,19 @@ class DashboardController extends Controller
              * Historical bars use the rate frozen when the invoice was issued,
              * so last month's figure does not shift when today's rate moves.
              */
-            $amount = $rollup->convert(
-                (float) $inv->total,
-                (string) $inv->currency_code,
-                $inv->exchange_rate_to_base,
-            );
-
             if ($inv->status === Invoice::STATUS_PAID) {
-                $paidByMonth[$ym] = ($paidByMonth[$ym] ?? 0) + $amount;
+                $paidByMonth[$ym] = ($paidByMonth[$ym] ?? 0) + $rollup->convert(
+                    (float) $inv->total,
+                    (string) $inv->currency_code,
+                    $inv->exchange_rate_to_base,
+                );
             } elseif ($inv->isOutstanding()) {
-                $pendingByMonth[$ym] = ($pendingByMonth[$ym] ?? 0) + $amount;
+                /** The bar tracks money owed, so part payments come off it. */
+                $pendingByMonth[$ym] = ($pendingByMonth[$ym] ?? 0) + $rollup->convert(
+                    $this->unpaidRemainder($inv),
+                    (string) $inv->currency_code,
+                    $inv->exchange_rate_to_base,
+                );
             }
         }
 
@@ -140,7 +182,8 @@ class DashboardController extends Controller
             ->whereNotNull('due_date')
             ->whereDate('due_date', '<', $today->toDateString())
             ->whereDate('due_date', '>=', $start12->toDateString())
-            ->get(['due_date', 'total', 'currency_code', 'exchange_rate_to_base']);
+            ->withSum('payments as paid_sum', 'amount')
+            ->get();
 
         $overdueByMonth = [];
 
@@ -148,7 +191,7 @@ class DashboardController extends Controller
             $ym = Carbon::parse($inv->due_date)->format('Y-m');
 
             $overdueByMonth[$ym] = ($overdueByMonth[$ym] ?? 0) + $rollup->convert(
-                (float) $inv->total,
+                $this->unpaidRemainder($inv),
                 (string) $inv->currency_code,
                 $inv->exchange_rate_to_base,
             );
@@ -239,24 +282,23 @@ class DashboardController extends Controller
          * ✅ Top clients by outstanding (pending) amount
          */
         /**
-         * Grouped by currency as well as client, so a client billed in two
-         * currencies is ranked on the converted total rather than a raw sum.
+         * Totalled per invoice rather than grouped in SQL, because each
+         * invoice's own ledger has to come off it first. A client billed in two
+         * currencies is still ranked on the converted sum rather than a raw one.
          */
-        $pendingByClient = (clone $base)
+        $outstandingInvoices = (clone $base)
             ->outstanding()
-            ->select('client_id', 'currency_code')
-            ->selectRaw('SUM(total) as pending_total')
-            ->groupBy('client_id', 'currency_code')
+            ->withSum('payments as paid_sum', 'amount')
             ->get();
 
         $convertedByClient = [];
 
-        foreach ($pendingByClient as $row) {
-            $clientId = (int) $row->client_id;
+        foreach ($outstandingInvoices as $inv) {
+            $clientId = (int) $inv->client_id;
 
             $convertedByClient[$clientId] = ($convertedByClient[$clientId] ?? 0.0) + $rollup->convert(
-                (float) $row->pending_total,
-                (string) $row->currency_code,
+                $this->unpaidRemainder($inv),
+                (string) $inv->currency_code,
             );
         }
 
