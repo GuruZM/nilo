@@ -176,6 +176,48 @@ function invoicePayload(App\Models\Client $client, App\Models\InvoiceTemplate $t
 }
 
 /**
+ * A user with an active company and one supplier — the minimum state the
+ * purchase order endpoint accepts.
+ *
+ * @return array{0: \App\Models\User, 1: \App\Models\Supplier}
+ */
+function purchaseOrderContext(): array
+{
+    [$user] = invoiceCreationContext('client@example.com');
+
+    $supplier = App\Models\Supplier::factory()->create([
+        'company_id' => $user->current_company_id,
+    ]);
+
+    return [$user, $supplier];
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function purchaseOrderPayload(App\Models\Supplier $supplier, float $unitPrice = 2500): array
+{
+    return [
+        'supplier_id' => $supplier->id,
+        'issue_date' => '2026-07-01',
+        'expected_date' => '2026-08-15',
+        'currency_code' => 'ZMW',
+        'status' => 'draft',
+        'purchase_order_discount' => 0,
+        'tax_percent' => 0,
+        'items' => [
+            [
+                'description' => 'Steel bolts',
+                'unit' => 'box',
+                'quantity' => 2,
+                'unit_price' => $unitPrice,
+                'discount' => 0,
+            ],
+        ],
+    ];
+}
+
+/**
  * A credit note form submission against `$invoice`.
  *
  * `currency_code` is deliberately included even though the controller never

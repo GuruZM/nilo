@@ -208,6 +208,29 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
             ->name('print');
     });
 
+    // Purchase orders
+    Route::prefix('purchase-orders')->name('purchase-orders.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\PurchaseOrderController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\PurchaseOrderController::class, 'create'])->name('create');
+        Route::post('/', [\App\Http\Controllers\PurchaseOrderController::class, 'store'])->name('store');
+
+        Route::get('/{purchaseOrder}', [\App\Http\Controllers\PurchaseOrderController::class, 'show'])
+            ->whereNumber('purchaseOrder')
+            ->name('show');
+
+        Route::post('/{purchaseOrder}/status', [\App\Http\Controllers\PurchaseOrderController::class, 'updateStatus'])
+            ->whereNumber('purchaseOrder')
+            ->name('status');
+
+        Route::get('/{purchaseOrder}/preview', [\App\Http\Controllers\PurchaseOrderController::class, 'preview'])
+            ->whereNumber('purchaseOrder')
+            ->name('preview');
+
+        Route::get('/{purchaseOrder}/print', [\App\Http\Controllers\PurchaseOrderController::class, 'print'])
+            ->whereNumber('purchaseOrder')
+            ->name('print');
+    });
+
     // Client management
     Route::get('clients', [\App\Http\Controllers\ClientController::class, 'index'])->name('clients.index');
     Route::get('clients/create', [\App\Http\Controllers\ClientController::class, 'create'])->name('clients.create');
