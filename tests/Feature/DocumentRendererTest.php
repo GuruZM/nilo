@@ -63,6 +63,35 @@ it('shows the balance still outstanding on a part payment', function () {
     expect($html)->toContain('3,000.00');
 });
 
+it('freezes the balance shown on a receipt at the moment it was issued', function () {
+    $payment = paymentForRendering(5000, 2000);
+    $payment->update(['balance_after' => 3000]);
+
+    /** A later payment must not rewrite what the first receipt says. */
+    App\Models\InvoicePayment::factory()
+        ->forInvoice($payment->invoice, 1500)
+        ->create(['balance_after' => 1500]);
+
+    expect(app(DocumentRenderer::class)->html($payment->fresh()))
+        ->toContain('3,000.00')
+        ->not->toContain('1,500.00');
+});
+
+it('says an invoice is settled in full when the frozen balance is zero', function () {
+    $payment = paymentForRendering(5000, 5000);
+    $payment->update(['balance_after' => 0]);
+
+    expect(app(DocumentRenderer::class)->html($payment->fresh()))
+        ->toContain('is settled in full');
+});
+
+it('falls back to the live balance for a payment recorded before balances were frozen', function () {
+    $payment = paymentForRendering(5000, 2000);
+
+    expect($payment->balance_after)->toBeNull()
+        ->and(app(DocumentRenderer::class)->html($payment))->toContain('3,000.00');
+});
+
 it('provisions a receipt template on first render', function () {
     $payment = paymentForRendering();
 

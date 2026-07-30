@@ -36,6 +36,7 @@ class InvoicePayment extends Model implements RenderableDocument
         'recorded_by',
         'receipt_number',
         'amount',
+        'balance_after',
         'currency_code',
         'paid_on',
         'method',
@@ -49,6 +50,7 @@ class InvoicePayment extends Model implements RenderableDocument
     {
         return [
             'amount' => 'decimal:2',
+            'balance_after' => 'decimal:2',
             'paid_on' => 'date',
             'exchange_rate_to_base' => 'float',
             'exchange_rate_fetched_at' => 'datetime',
@@ -163,7 +165,15 @@ class InvoicePayment extends Model implements RenderableDocument
             return null;
         }
 
-        $balance = app(InvoiceSettlement::class)->balanceDue($this->invoice);
+        /**
+         * The balance is frozen when the payment is recorded. A receipt is
+         * proof of a transaction at a moment in time — recomputing it on
+         * reprint would make the customer's copy and ours disagree. Rows
+         * predating the frozen column fall back to the live figure.
+         */
+        $balance = $this->balance_after !== null
+            ? (float) $this->balance_after
+            : app(InvoiceSettlement::class)->balanceDue($this->invoice);
 
         $standing = $balance > 0
             ? 'Balance remaining on invoice '.$this->invoice->number.': '
