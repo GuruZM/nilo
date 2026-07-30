@@ -303,15 +303,7 @@ it('lists credit notes for the active company', function () {
         ->get('/credit-notes')
         ->assertSuccessful()
         ->assertInertia(fn ($page) => $page
-            /**
-             * The second argument turns off the page-file existence check.
-             * `inertia.testing.ensure_pages_exist` is true in this application,
-             * and `resources/js/pages/CreditNotes/Index.tsx` is built in task
-             * 2.5, not here. Everything this test is actually about — the
-             * component name and the props behind it — is still asserted. Drop
-             * the `false` once the page exists.
-             */
-            ->component('CreditNotes/Index', false)
+            ->component('CreditNotes/Index')
             ->has('creditNotes', 1)
             ->where('creditNotes.0.number', 'CRN-000001')
         );
