@@ -76,6 +76,19 @@ it('closes each document with wording matched to its type', function () {
         ->toBe('Please confirm acceptance and quote this order number on your invoice.');
 });
 
+it('heads the closing card with wording matched to its type', function () {
+    $titles = array_map(fn (DocumentType $type) => $type->closingTitle(), DocumentType::cases());
+
+    expect($titles)->toBe([
+        'Thank you for your business!',
+        'Thank you for your business!',
+        'Payment received',
+        'Credit applied',
+        'Please confirm receipt',
+        'Order confirmation requested',
+    ]);
+});
+
 it('words each type for prose', function () {
     $labels = array_map(fn (DocumentType $type) => $type->label(), DocumentType::cases());
 

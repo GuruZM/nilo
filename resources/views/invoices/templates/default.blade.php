@@ -1,9 +1,19 @@
 {{-- resources/views/invoices/templates/default.blade.php --}}
+@php
+    /**
+     * Resolved before the document opens because the <title> needs it too, and
+     * two copies of this expression could drift apart without anything noticing.
+     */
+    $type = ($documentType ?? null) instanceof \App\Enums\DocumentType
+        ? $documentType
+        : (\App\Enums\DocumentType::tryFrom((string)($documentType ?? 'invoice'))
+            ?? \App\Enums\DocumentType::Invoice);
+@endphp
 <!doctype html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{{ (($documentType ?? null) instanceof \App\Enums\DocumentType ? $documentType : (\App\Enums\DocumentType::tryFrom((string)($documentType ?? 'invoice')) ?? \App\Enums\DocumentType::Invoice))->documentTitle() }} {{ data_get($invoice, 'number', '') }}</title>
+    <title>{{ $type->documentTitle() }} {{ data_get($invoice, 'number', '') }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
     @php
@@ -56,14 +66,10 @@
 
         /**
          * Every document Nilo issues renders through this one sheet. The type
-         * supplies the wording, the second date and whether money is shown, so
-         * a new type never means a new copy of the whole layout.
+         * — resolved above the doctype — supplies the wording, the second date
+         * and whether money is shown, so a new type never means a new copy of
+         * the whole layout.
          */
-        $type = ($documentType ?? null) instanceof \App\Enums\DocumentType
-            ? $documentType
-            : (\App\Enums\DocumentType::tryFrom((string)($documentType ?? 'invoice'))
-                ?? \App\Enums\DocumentType::Invoice);
-
         $documentNoun    = $type->label();
         $documentTitle   = $type->documentTitle();
         $showPrices      = $type->showsPrices();
@@ -86,6 +92,22 @@
             $fmt = number_format($val, $precision, '.', ',');
             $prefix = trim((string)$symbol) !== '' ? $symbol : $currencyCode;
             return $prefix . ' ' . $fmt;
+        };
+
+        /**
+         * A saved document hands over Carbon instances while an unsaved preview
+         * hands over the raw strings the form posted. Printing either one
+         * directly makes the same document read "2026-07-31 00:00:00" once
+         * saved and "2026-07-31" before, so both go through here.
+         */
+        $date = function ($value) {
+            if (blank($value)) {
+                return null;
+            }
+
+            return $value instanceof \DateTimeInterface
+                ? $value->format('Y-m-d')
+                : (string) $value;
         };
 
         $rows = $items ?? ($isArray ? ($invoice['items'] ?? []) : ($invoice->items ?? []));
@@ -486,12 +508,6 @@
             font-weight: 700;
             margin: 0;
         }
-        .desc-sub{
-            margin-top: 4px;
-            font-size: 12px;
-            color: var(--muted);
-            line-height: 1.45;
-        }
         .num{
             text-align: right;
             white-space: nowrap;
@@ -630,9 +646,9 @@
                         <div class="doc-title">{{ $documentTitle }}</div>
                         <div class="doc-meta">
                             <div>{{ ucfirst($documentNoun) }} No: {{ $invoiceNumber }}</div>
-                            <div>Date: {{ $issueDate ?? '—' }}</div>
+                            <div>Date: {{ $date($issueDate) ?? '—' }}</div>
                             @if($secondDateLabel !== null)
-                                <div>{{ $secondDateLabel }}: {{ $secondDate ?? '—' }}</div>
+                                <div>{{ $secondDateLabel }}: {{ $date($secondDate) ?? '—' }}</div>
                             @endif
                         </div>
                     </div>
@@ -749,7 +765,7 @@
                 </div>
 
                 <div class="card">
-                    <div class="card-title">Thank you for your business!</div>
+                    <div class="card-title">{{ $type->closingTitle() }}</div>
 
                     @if($showNotes && !empty($notesText))
                         <div class="card-body">{{ $notesText }}</div>

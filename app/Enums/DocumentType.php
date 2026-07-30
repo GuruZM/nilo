@@ -111,6 +111,22 @@ enum DocumentType: string
         };
     }
 
+    /**
+     * The heading printed above {@see closingLine()}. It has to move with the
+     * line beneath it — "Thank you for your business!" over "Please check the
+     * goods on arrival" reads as two different documents stapled together.
+     */
+    public function closingTitle(): string
+    {
+        return match ($this) {
+            self::Invoice, self::Quotation => 'Thank you for your business!',
+            self::Receipt => 'Payment received',
+            self::CreditNote => 'Credit applied',
+            self::DeliveryNote => 'Please confirm receipt',
+            self::PurchaseOrder => 'Order confirmation requested',
+        };
+    }
+
     public function closingLine(): string
     {
         return match ($this) {
