@@ -215,6 +215,12 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
     Route::put('/clients/{client}', [ClientController::class, 'update']);
     Route::delete('/clients/{client}', [ClientController::class, 'destroy']);
 
+    // Supplier management
+    Route::get('suppliers', [\App\Http\Controllers\SupplierController::class, 'index'])->name('suppliers.index');
+    Route::post('/suppliers', [\App\Http\Controllers\SupplierController::class, 'store'])->name('suppliers.store');
+    Route::put('/suppliers/{supplier}', [\App\Http\Controllers\SupplierController::class, 'update'])->name('suppliers.update');
+    Route::delete('/suppliers/{supplier}', [\App\Http\Controllers\SupplierController::class, 'destroy'])->name('suppliers.destroy');
+
     // currencies
     Route::get('/settings/currencies', [CurrencyController::class, 'index']);
     Route::post('/currencies/switch', [CurrencyController::class, 'switch']);
