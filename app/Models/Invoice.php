@@ -26,6 +26,12 @@ class Invoice extends Model
      * drops the amount out of every roll-up as soon as the invoice is sent.
      * A partly settled invoice is still owed for whatever remains.
      *
+     * `overdue` is reserved, not reachable: nothing writes that status today.
+     * The dashboard derives overdue-ness from `due_date` against the clock, so
+     * grepping for a write of this value will find none — it is listed here so
+     * that whenever something does start writing it, the money is already
+     * counted rather than silently dropping out of every roll-up.
+     *
      * @var list<string>
      */
     public const OUTSTANDING_STATUSES = ['pending', 'sent', 'partially_paid', 'overdue'];

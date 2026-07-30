@@ -23,9 +23,12 @@ trait FreezesExchangeRate
     /**
      * Stamp the current rate onto the model, if one is available.
      *
-     * Leaves the columns null when the rate table has nothing for this
-     * currency. Issuing an invoice must never be blocked by the FX feed being
-     * down; roll-ups fall back to the latest rate for these rows.
+     * Leaves the columns unset when the rate table has nothing for this
+     * currency — the attributes are never assigned, so they are absent from
+     * `getAttributes()` on the in-memory model rather than present and null.
+     * They read back as null once the row is refetched. Issuing an invoice must
+     * never be blocked by the FX feed being down; roll-ups fall back to the
+     * latest rate for these rows.
      */
     public function freezeExchangeRate(): void
     {
