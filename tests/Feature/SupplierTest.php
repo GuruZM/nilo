@@ -40,9 +40,7 @@ it('lists only the active company suppliers', function () {
         ->get('/suppliers')
         ->assertSuccessful()
         ->assertInertia(fn ($page) => $page
-            // Drop the `false` once Task 4.2 adds resources/js/pages/Suppliers/Index.tsx;
-            // config/inertia.php has ensure_pages_exist enabled.
-            ->component('Suppliers/Index', false)
+            ->component('Suppliers/Index')
             ->has('suppliers', 1)
             ->where('suppliers.0.name', 'Ours')
         );
