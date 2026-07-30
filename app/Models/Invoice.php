@@ -14,16 +14,21 @@ class Invoice extends Model
 
     public const STATUS_PAID = 'paid';
 
+    public const STATUS_PARTIALLY_PAID = 'partially_paid';
+
+    public const STATUS_VOID = 'void';
+
     /**
      * Statuses that represent money the company is still owed.
      *
      * An invoice leaves `pending` the moment it is emailed to the client, so
      * outstanding money cannot be identified by a single status — doing that
      * drops the amount out of every roll-up as soon as the invoice is sent.
+     * A partly settled invoice is still owed for whatever remains.
      *
      * @var list<string>
      */
-    public const OUTSTANDING_STATUSES = ['pending', 'sent'];
+    public const OUTSTANDING_STATUSES = ['pending', 'sent', 'partially_paid', 'overdue'];
 
     protected $fillable = [
         'company_id',

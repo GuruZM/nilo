@@ -346,7 +346,7 @@ class InvoiceController extends Controller
         }
 
         $data = $request->validate([
-            'status' => ['required', 'string', Rule::in(['pending', 'paid'])],
+            'status' => ['required', 'string', Rule::in(['pending', 'paid', 'partially_paid'])],
         ]);
 
         // ✅ No-op protection
