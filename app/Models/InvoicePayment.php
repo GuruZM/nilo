@@ -2,7 +2,11 @@
 
 namespace App\Models;
 
+use App\Contracts\RenderableDocument;
+use App\Enums\DocumentType;
 use App\Models\Concerns\FreezesExchangeRate;
+use App\Services\InvoiceSettlement;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -13,7 +17,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * The receipt a client is given is this row printed through the shared sheet,
  * so there is no separate receipt entity to keep in step.
  */
-class InvoicePayment extends Model
+class InvoicePayment extends Model implements RenderableDocument
 {
     /** @use HasFactory<\Database\Factories\InvoicePaymentFactory> */
     use FreezesExchangeRate, HasFactory;
@@ -76,5 +80,101 @@ class InvoicePayment extends Model
             'mobile_money' => 'Mobile money',
             default => ucfirst((string) $this->method),
         };
+    }
+
+    public function documentType(): DocumentType
+    {
+        return DocumentType::Receipt;
+    }
+
+    public function counterparty(): ?Model
+    {
+        return $this->invoice?->client;
+    }
+
+    /**
+     * A receipt has no lines of its own — it prints one row naming the invoice
+     * the money settled, which keeps it on the shared sheet instead of needing
+     * a second layout for a single figure.
+     *
+     * @return Collection<int, Model>
+     */
+    public function printableItems(): Collection
+    {
+        $this->loadMissing('invoice');
+
+        return new Collection([
+            new InvoiceItem([
+                'description' => 'Payment for invoice '.($this->invoice?->number ?? '—')
+                    .' ('.$this->methodLabel().')',
+                'quantity' => 1,
+                'unit_price' => (float) $this->amount,
+                'line_total' => (float) $this->amount,
+            ]),
+        ]);
+    }
+
+    public function chosenTemplateId(): ?int
+    {
+        return null;
+    }
+
+    /**
+     * The sheet reads these keys off whatever it is handed. A receipt is worth
+     * the amount received, not the invoice total.
+     */
+    public function getNumberAttribute(): ?string
+    {
+        return $this->receipt_number;
+    }
+
+    public function getIssueDateAttribute(): mixed
+    {
+        return $this->paid_on;
+    }
+
+    public function getSubtotalAttribute(): float
+    {
+        return (float) $this->amount;
+    }
+
+    public function getTaxTotalAttribute(): float
+    {
+        return 0.0;
+    }
+
+    public function getTotalAttribute(): float
+    {
+        return (float) $this->amount;
+    }
+
+    /**
+     * Printed under the line so the client can see what is left to pay.
+     *
+     * The sheet prints notes *instead of* the type's closing line, not beneath
+     * it, so the closing line is carried in here rather than left to be
+     * silently dropped off every receipt that names a balance.
+     */
+    public function getNotesAttribute(): ?string
+    {
+        $this->loadMissing('invoice');
+
+        if (! $this->invoice) {
+            return null;
+        }
+
+        $balance = app(InvoiceSettlement::class)->balanceDue($this->invoice);
+
+        $standing = $balance > 0
+            ? 'Balance remaining on invoice '.$this->invoice->number.': '
+                .number_format($balance, 2, '.', ',').' '.$this->currency_code
+            : 'Invoice '.$this->invoice->number.' is settled in full.';
+
+        return $this->documentType()->closingLine()."\n".$standing;
+    }
+
+    public function getTermsAttribute(): ?string
+    {
+        return null;
     }
 }
