@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>{{ ($documentType ?? 'invoice') === 'quotation' ? 'Quotation' : 'Invoice' }} {{ data_get($invoice, 'number', '') }}</title>
+    <title>{{ (($documentType ?? null) instanceof \App\Enums\DocumentType ? $documentType : (\App\Enums\DocumentType::tryFrom((string)($documentType ?? 'invoice')) ?? \App\Enums\DocumentType::Invoice))->documentTitle() }} {{ data_get($invoice, 'number', '') }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
     @php
@@ -55,26 +55,27 @@
         $invoiceNumber = $isArray ? ($invoice['number'] ?? '—') : ($invoice->number ?? '—');
 
         /**
-         * Quotations render through this same template. Only the wording and the
-         * second date differ, so the document type drives those rather than a
-         * near-identical copy of the whole sheet.
+         * Every document Nilo issues renders through this one sheet. The type
+         * supplies the wording, the second date and whether money is shown, so
+         * a new type never means a new copy of the whole layout.
          */
-        $documentType  = (string)($documentType ?? 'invoice');
-        $isQuotation   = $documentType === 'quotation';
-        $documentNoun  = $isQuotation ? 'quotation' : 'invoice';
-        $documentTitle = strtoupper($documentNoun);
+        $type = ($documentType ?? null) instanceof \App\Enums\DocumentType
+            ? $documentType
+            : (\App\Enums\DocumentType::tryFrom((string)($documentType ?? 'invoice'))
+                ?? \App\Enums\DocumentType::Invoice);
+
+        $documentNoun    = $type->label();
+        $documentTitle   = $type->documentTitle();
+        $showPrices      = $type->showsPrices();
+        $closingLine     = $type->closingLine();
+        $secondDateLabel = $type->secondDateLabel();
 
         $issueDate = $isArray ? ($invoice['issue_date'] ?? null) : ($invoice->issue_date ?? null);
-        $dueDate   = $isArray ? ($invoice['due_date'] ?? null) : ($invoice->due_date ?? null);
 
-        if ($isQuotation) {
-            $dueDate = $isArray ? ($invoice['valid_until'] ?? null) : ($invoice->valid_until ?? null);
-        }
-
-        $secondDateLabel = $isQuotation ? 'Valid until' : 'Due';
-        $closingLine = $isQuotation
-            ? 'Thank you for the opportunity. This quotation is valid until the date shown above.'
-            : 'Thank you for your business. Kindly settle within due date.';
+        $secondDateField = $type->secondDateField();
+        $secondDate = $secondDateField === null
+            ? null
+            : ($isArray ? ($invoice[$secondDateField] ?? null) : ($invoice->{$secondDateField} ?? null));
 
         $currencyCode = $currency->code ?? ($isArray ? ($invoice['currency_code'] ?? 'ZMW') : ($invoice->currency_code ?? 'ZMW'));
         $symbol       = $currency->symbol ?? '';
@@ -465,6 +466,9 @@
             font-size: 13px;
             align-items: start;
         }
+        /* A delivery note carries no money, so its table drops to description + qty. */
+        .table.no-prices .thead,
+        .table.no-prices .trow{ grid-template-columns: 1fr 120px; }
         .trow + .trow{
             border-top: 1px solid rgba(0,0,0,.06);
         }
@@ -625,9 +629,11 @@
                     <div class="{{ $headerLayout === 'split' ? 'right-align' : '' }}">
                         <div class="doc-title">{{ $documentTitle }}</div>
                         <div class="doc-meta">
-                            <div>{{ $isQuotation ? 'Quotation' : 'Invoice' }} No: {{ $invoiceNumber }}</div>
+                            <div>{{ ucfirst($documentNoun) }} No: {{ $invoiceNumber }}</div>
                             <div>Date: {{ $issueDate ?? '—' }}</div>
-                            <div>{{ $secondDateLabel }}: {{ $dueDate ?? '—' }}</div>
+                            @if($secondDateLabel !== null)
+                                <div>{{ $secondDateLabel }}: {{ $secondDate ?? '—' }}</div>
+                            @endif
                         </div>
                     </div>
                 </div>
@@ -646,7 +652,7 @@
             {{-- Bill To + Summary --}}
             <div class="row-top">
                 <div class="billto">
-                    <div class="label-accent">To:</div>
+                    <div class="label-accent">{{ $type->counterpartyLabel() }}</div>
                     <div class="client-name">{{ $client->name ?? '—' }}</div>
                     @if(!empty($client->address))
                         <div class="client-meta">{{ $client->address }}</div>
@@ -661,42 +667,51 @@
                     @endif
                 </div>
 
-                <div class="summary">
-                    <div class="summary-row" style="margin-top:0;">
-                        <span>Sub Total</span>
-                        <strong>{{ $money($subtotalFinal) }}</strong>
-                    </div>
+                @if($showPrices)
+                    <div class="summary">
+                        <div class="summary-row" style="margin-top:0;">
+                            <span>Sub Total</span>
+                            <strong>{{ $money($subtotalFinal) }}</strong>
+                        </div>
 
-                    <div class="summary-row">
-                        <span>VAT</span>
-                        <strong>{{ $money($vatFinal) }}</strong>
-                    </div>
+                        <div class="summary-row">
+                            <span>VAT</span>
+                            <strong>{{ $money($vatFinal) }}</strong>
+                        </div>
 
-                    <div class="grand">
-                        <span>GRAND TOTAL</span>
-                        <span>{{ $money($grandFinal) }}</span>
+                        <div class="grand">
+                            <span>GRAND TOTAL</span>
+                            <span>{{ $money($grandFinal) }}</span>
+                        </div>
                     </div>
-                </div>
+                @endif
             </div>
 
             {{-- Items table --}}
-            <div class="table {{ $tableStyle === 'striped' ? 'striped' : ($tableStyle === 'lined' ? 'lined' : 'clean') }}">
+            <div class="table {{ $showPrices ? '' : 'no-prices' }} {{ $tableStyle === 'striped' ? 'striped' : ($tableStyle === 'lined' ? 'lined' : 'clean') }}">
                 <div class="thead">
                     <div>Item Description</div>
-                    <div class="num">Price</div>
+                    @if($showPrices)
+                        <div class="num">Price</div>
+                    @endif
                     <div class="num">Qty</div>
-                    <div class="num">Total</div>
+                    @if($showPrices)
+                        <div class="num">Total</div>
+                    @endif
                 </div>
 
                 @foreach($itemsComputed as $it)
                     <div class="trow">
                         <div>
                             <div class="desc">{{ $it['desc'] ?: '—' }}</div>
-                            <div class="desc-sub">Contrary to popular belief Lorem ipsum simply random.</div>
                         </div>
-                        <div class="num">{{ number_format((float)$it['price'], $precision, '.', ',') }}</div>
+                        @if($showPrices)
+                            <div class="num">{{ number_format((float)$it['price'], $precision, '.', ',') }}</div>
+                        @endif
                         <div class="num">{{ number_format((float)$it['qty'], 2, '.', ',') }}</div>
-                        <div class="num" style="font-weight:800;">{{ number_format((float)$it['total'], $precision, '.', ',') }}</div>
+                        @if($showPrices)
+                            <div class="num" style="font-weight:800;">{{ number_format((float)$it['total'], $precision, '.', ',') }}</div>
+                        @endif
                     </div>
                 @endforeach
             </div>
