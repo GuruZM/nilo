@@ -131,6 +131,11 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
         Route::get('/{invoice}/payments/{payment}/print', [\App\Http\Controllers\InvoicePaymentController::class, 'print'])
             ->whereNumber(['invoice', 'payment'])
             ->name('payments.print');
+
+        // Goods dispatched against this invoice
+        Route::post('/{invoice}/delivery-note', [\App\Http\Controllers\DeliveryNoteController::class, 'storeForInvoice'])
+            ->whereNumber('invoice')
+            ->name('delivery-note.store');
     });
 
     // Quotation management
@@ -179,6 +184,27 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
 
         Route::get('/{creditNote}/print', [\App\Http\Controllers\CreditNoteController::class, 'print'])
             ->whereNumber('creditNote')
+            ->name('print');
+    });
+
+    // Delivery notes
+    Route::prefix('delivery-notes')->name('delivery-notes.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\DeliveryNoteController::class, 'index'])->name('index');
+
+        Route::get('/{deliveryNote}', [\App\Http\Controllers\DeliveryNoteController::class, 'show'])
+            ->whereNumber('deliveryNote')
+            ->name('show');
+
+        Route::put('/{deliveryNote}', [\App\Http\Controllers\DeliveryNoteController::class, 'update'])
+            ->whereNumber('deliveryNote')
+            ->name('update');
+
+        Route::get('/{deliveryNote}/preview', [\App\Http\Controllers\DeliveryNoteController::class, 'preview'])
+            ->whereNumber('deliveryNote')
+            ->name('preview');
+
+        Route::get('/{deliveryNote}/print', [\App\Http\Controllers\DeliveryNoteController::class, 'print'])
+            ->whereNumber('deliveryNote')
             ->name('print');
     });
 
