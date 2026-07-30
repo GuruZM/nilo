@@ -163,3 +163,29 @@ it('subtracts each invoice its own payments', function () {
             ->where('stats.pending_revenue', 3000)
         );
 });
+
+/**
+ * The companies list and the dashboard read the same money from two different
+ * queries. If they disagree, one of them is lying to the user about what they
+ * are owed — so this pins them together.
+ */
+it('nets payments off the companies list the same way the dashboard does', function () {
+    [$user, $invoice] = payableInvoiceContext();
+
+    $this->actingAs($user)->post("/invoices/{$invoice->id}/payments", [
+        'amount' => 4000, 'paid_on' => '2026-07-15', 'method' => 'cash',
+    ])->assertSessionHasNoErrors();
+
+    $this->actingAs($user)
+        ->get(route('companies.index'))
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page
+            ->component('Companies/Index')
+            ->where('companies.0.pending_revenue', 1000)
+        );
+
+    $this->actingAs($user)
+        ->get('/dashboard')
+        ->assertOk()
+        ->assertInertia(fn ($page) => $page->where('stats.pending_revenue', 1000));
+});

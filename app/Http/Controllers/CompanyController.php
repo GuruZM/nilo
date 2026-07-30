@@ -71,24 +71,33 @@ class CompanyController extends Controller
             $company->id => CurrencyRollup::into($displayCode, $company->id),
         ]);
 
+        /**
+         * Summed per invoice rather than per currency, because an outstanding
+         * invoice contributes only what is still owed on it and that has to be
+         * netted off before conversion. Grouping in SQL cannot see the payment
+         * ledger, and a company whose card disagreed with its own dashboard
+         * would be worse than a slower query.
+         */
         $revenueByCompany = Invoice::query()
             ->whereIn('company_id', $companies->pluck('id'))
             ->whereIn('status', [Invoice::STATUS_PAID, ...Invoice::OUTSTANDING_STATUSES])
-            ->select('company_id', 'currency_code', 'status')
-            ->selectRaw('SUM(total) as amount')
-            ->groupBy('company_id', 'currency_code', 'status')
-            ->get()
-            ->reduce(function (array $carry, $row) use ($rollups, $rollup): array {
-                $converted = ($rollups[$row->company_id] ?? $rollup)
-                    ->convert((float) $row->amount, (string) $row->currency_code);
-
+            ->withSum('payments as paid_sum', 'amount')
+            ->get(['id', 'company_id', 'currency_code', 'status', 'total'])
+            ->reduce(function (array $carry, Invoice $invoice) use ($rollups, $rollup): array {
                 /**
                  * Every unpaid status collapses into one outstanding bucket, so
                  * an emailed invoice is not grouped under a key nothing reads.
                  */
-                $bucket = $row->status === Invoice::STATUS_PAID ? 'paid' : 'pending';
+                $isPaid = $invoice->status === Invoice::STATUS_PAID;
 
-                $key = "{$row->company_id}.{$bucket}";
+                $amount = $isPaid
+                    ? (float) $invoice->total
+                    : max(0, (float) $invoice->total - (float) ($invoice->paid_sum ?? 0));
+
+                $converted = ($rollups[$invoice->company_id] ?? $rollup)
+                    ->convert($amount, (string) $invoice->currency_code);
+
+                $key = "{$invoice->company_id}.".($isPaid ? 'paid' : 'pending');
                 $carry[$key] = ($carry[$key] ?? 0.0) + $converted;
 
                 return $carry;
