@@ -31,6 +31,7 @@ class StorePlanRequest extends FormRequest
             'max_companies' => 'required|integer|min:-1',
             'max_invoices' => 'required|integer|min:-1',
             'max_quotations' => 'required|integer|min:-1',
+            'max_purchase_orders' => 'required|integer|min:-1',
             'max_invoice_templates' => 'required|integer|min:-1',
             'max_quotation_templates' => 'required|integer|min:-1',
             'can_upload_custom_template' => 'boolean',
@@ -56,6 +57,7 @@ class StorePlanRequest extends FormRequest
             'max_companies.min' => 'Use -1 for unlimited, or any number from 0 upwards.',
             'max_invoices.min' => 'Use -1 for unlimited, or any number from 0 upwards.',
             'max_quotations.min' => 'Use -1 for unlimited, or any number from 0 upwards.',
+            'max_purchase_orders.min' => 'Use -1 for unlimited, or any number from 0 upwards.',
             'max_invoice_templates.min' => 'Use -1 for unlimited, or any number from 0 upwards.',
             'max_quotation_templates.min' => 'Use -1 for unlimited, or any number from 0 upwards.',
         ];

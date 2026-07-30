@@ -24,6 +24,7 @@ class Plan extends Model
         'max_companies',
         'max_invoices',
         'max_quotations',
+        'max_purchase_orders',
         'max_invoice_templates',
         'max_quotation_templates',
         'can_upload_custom_template',
@@ -105,6 +106,11 @@ class Plan extends Model
     public function hasUnlimitedQuotations(): bool
     {
         return $this->max_quotations === -1;
+    }
+
+    public function hasUnlimitedPurchaseOrders(): bool
+    {
+        return $this->max_purchase_orders === -1;
     }
 
     public function hasUnlimitedCompanies(): bool

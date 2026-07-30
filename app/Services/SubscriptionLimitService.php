@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Invoice;
 use App\Models\InvoiceTemplate;
 use App\Models\Plan;
+use App\Models\PurchaseOrder;
 use App\Models\Quotation;
 use App\Models\User;
 
@@ -97,6 +98,21 @@ class SubscriptionLimitService
         return $count < $plan->max_quotations;
     }
 
+    public function canCreatePurchaseOrder(int $companyId): bool
+    {
+        $plan = $this->activePlan();
+
+        if (! $plan) {
+            return false;
+        }
+
+        if ($plan->max_purchase_orders === -1) {
+            return true;
+        }
+
+        return PurchaseOrder::where('company_id', $companyId)->count() < $plan->max_purchase_orders;
+    }
+
     public function canCreateTemplate(string $type, int $companyId): bool
     {
         $plan = $this->activePlan();
@@ -132,6 +148,7 @@ class SubscriptionLimitService
      *     companies: array{used: int, limit: int},
      *     invoices: array{used: int, limit: int},
      *     quotations: array{used: int, limit: int},
+     *     purchase_orders: array{used: int, limit: int},
      *     invoice_templates: array{used: int, limit: int},
      *     quotation_templates: array{used: int, limit: int},
      * }
@@ -153,6 +170,10 @@ class SubscriptionLimitService
             'quotations' => [
                 'used' => $companyId ? Quotation::where('company_id', $companyId)->count() : 0,
                 'limit' => $plan?->max_quotations ?? 0,
+            ],
+            'purchase_orders' => [
+                'used' => $companyId ? PurchaseOrder::where('company_id', $companyId)->count() : 0,
+                'limit' => $plan?->max_purchase_orders ?? 0,
             ],
             'invoice_templates' => [
                 'used' => $companyId ? InvoiceTemplate::where('company_id', $companyId)->where('type', 'invoice')->count() : 0,

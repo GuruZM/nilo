@@ -40,6 +40,7 @@ type PlanFormData = {
     max_companies: number;
     max_invoices: number;
     max_quotations: number;
+    max_purchase_orders: number;
     max_invoice_templates: number;
     max_quotation_templates: number;
     can_upload_custom_template: boolean;
@@ -54,6 +55,7 @@ const LIMIT_FIELDS = [
     { key: 'max_companies', label: 'Companies' },
     { key: 'max_invoices', label: 'Invoices' },
     { key: 'max_quotations', label: 'Quotations' },
+    { key: 'max_purchase_orders', label: 'Purchase orders' },
     { key: 'max_invoice_templates', label: 'Invoice templates' },
     { key: 'max_quotation_templates', label: 'Quotation templates' },
 ] as const;
@@ -128,6 +130,7 @@ export function PlanForm({
             max_companies: plan?.max_companies ?? 1,
             max_invoices: plan?.max_invoices ?? 1,
             max_quotations: plan?.max_quotations ?? 1,
+            max_purchase_orders: plan?.max_purchase_orders ?? 1,
             max_invoice_templates: plan?.max_invoice_templates ?? 1,
             max_quotation_templates: plan?.max_quotation_templates ?? 1,
             can_upload_custom_template:

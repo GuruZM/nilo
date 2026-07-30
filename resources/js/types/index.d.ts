@@ -92,6 +92,7 @@ export interface Plan {
     max_companies: number;
     max_invoices: number;
     max_quotations: number;
+    max_purchase_orders: number;
     max_invoice_templates: number;
     max_quotation_templates: number;
     can_upload_custom_template: boolean;

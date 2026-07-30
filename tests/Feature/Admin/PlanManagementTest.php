@@ -20,6 +20,7 @@ function planPayload(array $overrides = []): array
         'max_companies' => 5,
         'max_invoices' => 50,
         'max_quotations' => 50,
+        'max_purchase_orders' => 50,
         'max_invoice_templates' => 10,
         'max_quotation_templates' => 10,
         'can_upload_custom_template' => true,
