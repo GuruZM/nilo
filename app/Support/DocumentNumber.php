@@ -15,6 +15,10 @@ use Illuminate\Database\Eloquent\Model;
 class DocumentNumber
 {
     /**
+     * The model and the type must correspond — passing `Receipt::class` with
+     * `DocumentType::CreditNote` counts the right rows and stamps the wrong
+     * prefix, which nothing downstream would catch.
+     *
      * @param  class-string<Model>  $modelClass
      */
     public static function nextFor(string $modelClass, int $companyId, DocumentType $type): string
