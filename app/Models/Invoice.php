@@ -6,6 +6,7 @@ use App\Models\Concerns\FreezesExchangeRate;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Invoice extends Model
 {
@@ -110,6 +111,14 @@ class Invoice extends Model
     public function items()
     {
         return $this->hasMany(InvoiceItem::class)->orderBy('sort_order');
+    }
+
+    /**
+     * Money received against this invoice, newest first.
+     */
+    public function payments(): HasMany
+    {
+        return $this->hasMany(InvoicePayment::class)->orderByDesc('paid_on');
     }
 
     public function company()
