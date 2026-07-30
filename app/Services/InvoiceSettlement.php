@@ -9,7 +9,7 @@ use App\Models\Invoice;
  *
  * Status is derived here rather than set by hand anywhere a payment is touched,
  * so cash and credit can never disagree about whether an invoice is settled.
- * Credit notes join this calculation in Phase 2 through {@see amountCredited()}.
+ * Credit notes join this calculation through {@see amountCredited()}.
  */
 class InvoiceSettlement
 {
@@ -27,12 +27,13 @@ class InvoiceSettlement
     }
 
     /**
-     * Credits raised against this invoice. Always zero until Phase 2 lands the
-     * credit_notes table.
+     * Credits raised against this invoice. Drafts are excluded — a credit note
+     * that is still being written has not been given to anyone and must not
+     * move the balance.
      */
     public function amountCredited(Invoice $invoice): float
     {
-        return 0.0;
+        return round((float) $invoice->creditNotes()->applied()->sum('total'), 2);
     }
 
     public function balanceDue(Invoice $invoice): float

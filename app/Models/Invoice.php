@@ -121,6 +121,14 @@ class Invoice extends Model
         return $this->hasMany(InvoicePayment::class)->orderByDesc('paid_on');
     }
 
+    /**
+     * Credits raised against this invoice, newest first.
+     */
+    public function creditNotes(): HasMany
+    {
+        return $this->hasMany(CreditNote::class)->orderByDesc('issue_date');
+    }
+
     public function company()
     {
         return $this->belongsTo(Company::class);
