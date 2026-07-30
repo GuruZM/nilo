@@ -174,3 +174,33 @@ function invoicePayload(App\Models\Client $client, App\Models\InvoiceTemplate $t
         ],
     ];
 }
+
+/**
+ * A credit note form submission against `$invoice`.
+ *
+ * `currency_code` is deliberately included even though the controller never
+ * reads it — the real form does send one, and the tests need a value present to
+ * prove it is ignored in favour of the invoice's own currency.
+ *
+ * @return array<string, mixed>
+ */
+function creditNotePayload(App\Models\Invoice $invoice, float $unitPrice = 1000, string $status = 'issued'): array
+{
+    return [
+        'invoice_id' => $invoice->id,
+        'issue_date' => '2026-07-15',
+        'currency_code' => 'ZMW',
+        'status' => $status,
+        'reason' => 'Goods returned',
+        'credit_note_discount' => 0,
+        'tax_percent' => 0,
+        'items' => [
+            [
+                'description' => 'Returned consulting hours',
+                'quantity' => 1,
+                'unit_price' => $unitPrice,
+                'discount' => 0,
+            ],
+        ],
+    ];
+}

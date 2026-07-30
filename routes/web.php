@@ -159,6 +159,29 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
             ->name('print');
     });
 
+    // Credit notes
+    Route::prefix('credit-notes')->name('credit-notes.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\CreditNoteController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\CreditNoteController::class, 'create'])->name('create');
+        Route::post('/', [\App\Http\Controllers\CreditNoteController::class, 'store'])->name('store');
+
+        Route::get('/{creditNote}', [\App\Http\Controllers\CreditNoteController::class, 'show'])
+            ->whereNumber('creditNote')
+            ->name('show');
+
+        Route::post('/{creditNote}/status', [\App\Http\Controllers\CreditNoteController::class, 'updateStatus'])
+            ->whereNumber('creditNote')
+            ->name('status');
+
+        Route::get('/{creditNote}/preview', [\App\Http\Controllers\CreditNoteController::class, 'preview'])
+            ->whereNumber('creditNote')
+            ->name('preview');
+
+        Route::get('/{creditNote}/print', [\App\Http\Controllers\CreditNoteController::class, 'print'])
+            ->whereNumber('creditNote')
+            ->name('print');
+    });
+
     // Client management
     Route::get('clients', [\App\Http\Controllers\ClientController::class, 'index'])->name('clients.index');
     Route::get('clients/create', [\App\Http\Controllers\ClientController::class, 'create'])->name('clients.create');
