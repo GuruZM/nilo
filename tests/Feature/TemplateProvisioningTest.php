@@ -14,8 +14,25 @@ it('creates a default template the first time a type is used', function () {
         ->and($template->company_id)->toBe($company->id)
         ->and($template->type)->toBe('receipt')
         ->and($template->is_default)->toBeTrue()
-        ->and($template->name)->toBe('Default receipt');
+        ->and($template->name)->toBe('Default receipt')
+        /** The renderer merges this over the house defaults, so it must be an array. */
+        ->and($template->settings)->toBe([]);
 });
+
+it('provisions rather than failing when the chosen template does not exist', function (?int $templateId) {
+    $company = Company::factory()->create();
+
+    $resolved = app(TemplateProvisioner::class)
+        ->forCompany($company->id, DocumentType::Receipt, $templateId);
+
+    expect($resolved->exists)->toBeTrue()
+        ->and($resolved->company_id)->toBe($company->id)
+        ->and($resolved->type)->toBe('receipt');
+})->with([
+    'zero' => 0,
+    'null' => null,
+    'never existed' => 987654,
+]);
 
 it('reuses the provisioned template on the next call', function () {
     $company = Company::factory()->create();

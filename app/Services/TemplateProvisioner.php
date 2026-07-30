@@ -17,6 +17,10 @@ use App\Models\InvoiceTemplate;
  */
 class TemplateProvisioner
 {
+    /**
+     * Resolves the template, creating one as a side effect when the company has
+     * none of this type yet. Callers always get a persisted template back.
+     */
     public function forCompany(int $companyId, DocumentType $type, ?int $templateId = null): InvoiceTemplate
     {
         if ($templateId) {
