@@ -8,7 +8,9 @@ import {
     CheckCircle2,
     Clock3,
     FileText,
+    PackageCheck,
     Search,
+    Truck,
     XCircle,
 } from 'lucide-react';
 import * as React from 'react';
@@ -400,6 +402,21 @@ const STATUS_TONES: Record<
     accepted: {
         className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
         icon: CheckCircle2,
+    },
+    /**
+     * Same trap as `issued` below: without its own tone a signed-for delivery
+     * note falls back to amber and reads exactly like a draft one, which on a
+     * document whose only job is proving receipt is the worst possible pair to
+     * confuse. `dispatched` sits between them — gone, but not yet signed.
+     */
+    delivered: {
+        className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+        icon: PackageCheck,
+    },
+    dispatched: {
+        className:
+            'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200',
+        icon: Truck,
     },
     confirmed: {
         className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',

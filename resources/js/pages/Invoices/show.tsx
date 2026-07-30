@@ -9,6 +9,7 @@ import {
     Receipt,
     RefreshCw,
     Trash2,
+    Truck,
     Wallet,
 } from 'lucide-react';
 import * as React from 'react';
@@ -198,6 +199,35 @@ export default function InvoiceShow({
         });
     };
 
+    /**
+     * Generates a delivery note from this invoice and lands on it.
+     *
+     * Nothing on the server dedupes: a second POST makes a second note, and the
+     * invoice payload does not say whether one already exists, so the page
+     * cannot tell. Latching on the request itself at least stops the impatient
+     * double-click, which is the way duplicates actually get made.
+     */
+    const [generatingDeliveryNote, setGeneratingDeliveryNote] =
+        React.useState(false);
+
+    const generateDeliveryNote = () => {
+        if (generatingDeliveryNote) {
+            return;
+        }
+
+        router.post(
+            `/invoices/${invoice.id}/delivery-note`,
+            {},
+            {
+                preserveScroll: true,
+                onStart: () => setGeneratingDeliveryNote(true),
+                onFinish: () => setGeneratingDeliveryNote(false),
+                onError: () =>
+                    toast.error('Failed to generate a delivery note.'),
+            },
+        );
+    };
+
     /** Today in the browser's own timezone, not UTC. */
     const today = React.useMemo(() => {
         const now = new Date();
@@ -244,6 +274,18 @@ export default function InvoiceShow({
                         >
                             <Download className="h-4 w-4" />
                             Download PDF
+                        </PillButton>
+
+                        <PillButton
+                            variant="ghost"
+                            size="sm"
+                            onClick={generateDeliveryNote}
+                            disabled={generatingDeliveryNote}
+                        >
+                            <Truck className="size-4" />
+                            {generatingDeliveryNote
+                                ? 'Generating…'
+                                : 'Delivery note'}
                         </PillButton>
 
                         <PillButton

@@ -256,13 +256,50 @@ it('lists delivery notes for the active company', function () {
         ->get('/delivery-notes')
         ->assertSuccessful()
         ->assertInertia(fn ($page) => $page
-            // Drop the `false` once Task 3.5 creates resources/js/pages/DeliveryNotes/Index.tsx —
-            // config/inertia.php has ensure_pages_exist enabled.
-            ->component('DeliveryNotes/Index', false)
+            ->component('DeliveryNotes/Index')
             ->has('deliveryNotes', 1)
             ->where('deliveryNotes.0.number', 'DN-000001')
         );
 });
+
+/**
+ * The page component is `DeliveryNotes/show` — lowercase, matching the sibling
+ * document modules. With `ensure_pages_exist` enabled this also proves the file
+ * is on disk under exactly that name.
+ */
+it('renders the delivery note screen', function () {
+    [$user, $invoice] = invoiceWithLines();
+
+    $this->actingAs($user)->post("/invoices/{$invoice->id}/delivery-note");
+    $note = DeliveryNote::query()->latest('id')->first();
+
+    $this->actingAs($user)
+        ->get("/delivery-notes/{$note->id}")
+        ->assertSuccessful()
+        ->assertInertia(fn ($page) => $page
+            ->component('DeliveryNotes/show')
+            ->where('deliveryNote.number', 'DN-000001')
+            ->has('deliveryNote.items', 2)
+            ->where('statuses', ['draft', 'dispatched', 'delivered'])
+        );
+});
+
+/**
+ * The screens carry the same promise as the printed sheet: no money anywhere.
+ * Reaching for the `Money` component or a price field on either page is the
+ * single mistake that would break it, so it is asserted at the source.
+ */
+it('keeps money off the delivery note screens', function (string $file) {
+    $source = file_get_contents(__DIR__.'/../../resources/js/pages/DeliveryNotes/'.$file);
+
+    expect($source)
+        ->not->toContain('components/money')
+        ->not->toContain('<Money')
+        ->not->toContain('TotalRow')
+        ->not->toContain('unit_price')
+        ->not->toContain('line_total')
+        ->not->toContain('currency_code');
+})->with(['Index.tsx', 'show.tsx']);
 
 /* ---------------------------- Signature block ---------------------------- */
 
