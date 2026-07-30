@@ -388,6 +388,15 @@ const STATUS_TONES: Record<
         className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
         icon: CheckCircle2,
     },
+    /**
+     * An issued credit note has moved money; a draft has not. Without its own
+     * tone `issued` falls back to amber and reads as a draft, which is the one
+     * pair on this document that must never look alike.
+     */
+    issued: {
+        className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+        icon: CheckCircle2,
+    },
     accepted: {
         className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
         icon: CheckCircle2,
