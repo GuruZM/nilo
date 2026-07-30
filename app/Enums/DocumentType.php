@@ -33,11 +33,6 @@ enum DocumentType: string
         };
     }
 
-    public function pluralLabel(): string
-    {
-        return $this->label().'s';
-    }
-
     /**
      * The banner printed across the top of the sheet.
      */
@@ -91,7 +86,10 @@ enum DocumentType: string
      */
     public function showsPrices(): bool
     {
-        return $this !== self::DeliveryNote;
+        return match ($this) {
+            self::Invoice, self::Quotation, self::Receipt, self::CreditNote, self::PurchaseOrder => true,
+            self::DeliveryNote => false,
+        };
     }
 
     /**
@@ -99,12 +97,18 @@ enum DocumentType: string
      */
     public function usesSupplier(): bool
     {
-        return $this === self::PurchaseOrder;
+        return match ($this) {
+            self::PurchaseOrder => true,
+            self::Invoice, self::Quotation, self::Receipt, self::CreditNote, self::DeliveryNote => false,
+        };
     }
 
     public function counterpartyLabel(): string
     {
-        return $this === self::DeliveryNote ? 'Deliver to:' : 'To:';
+        return match ($this) {
+            self::DeliveryNote => 'Deliver to:',
+            self::Invoice, self::Quotation, self::Receipt, self::CreditNote, self::PurchaseOrder => 'To:',
+        };
     }
 
     public function closingLine(): string
