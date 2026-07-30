@@ -116,6 +116,7 @@ class InvoicePaymentController extends Controller
                     InvoicePayment::class,
                     $companyId,
                     DocumentType::Receipt,
+                    'receipt_number',
                 ),
                 'amount' => (float) $data['amount'],
 
