@@ -45,9 +45,11 @@ class InvoiceSettlement
     /**
      * Rewrites the invoice status from the ledger.
      *
-     * `sent` rather than `pending` is the resting state for an unsettled
-     * invoice that has had money on it, because anything with a payment
-     * against it has demonstrably reached the client.
+     * Safe to call on any invoice: one whose ledger says nothing is settled is
+     * left as it is, unless it is currently carrying a settled status this
+     * service itself set, in which case it comes to rest at `sent`. `sent`
+     * rather than `pending` is that resting state, because an invoice that has
+     * had money against it has demonstrably reached the client.
      */
     public function sync(Invoice $invoice): void
     {
@@ -55,13 +57,21 @@ class InvoiceSettlement
             return;
         }
 
-        $balance = $this->balanceDue($invoice);
         $settled = $this->amountPaid($invoice) + $this->amountCredited($invoice);
+        $balance = round(max(0, (float) $invoice->total - $settled), 2);
 
         $status = match (true) {
             $balance <= 0.0 => Invoice::STATUS_PAID,
             $settled > 0.0 => Invoice::STATUS_PARTIALLY_PAID,
-            default => 'sent',
+
+            /**
+             * Nothing is settled. Only reverse a status this service itself
+             * could have set — promoting a draft that was never issued would
+             * pull unsent money into every outstanding roll-up.
+             */
+            in_array($invoice->status, [Invoice::STATUS_PAID, Invoice::STATUS_PARTIALLY_PAID], true) => 'sent',
+
+            default => $invoice->status,
         };
 
         if ($invoice->status !== $status) {

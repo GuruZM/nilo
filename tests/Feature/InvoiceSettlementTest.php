@@ -91,6 +91,22 @@ it('returns an invoice to sent when its only payment is removed', function () {
     expect($invoice->fresh()->status)->toBe('sent');
 });
 
+it('leaves an unissued draft alone', function () {
+    $invoice = invoiceForSettlement(status: 'draft');
+
+    app(InvoiceSettlement::class)->sync($invoice);
+
+    expect($invoice->fresh()->status)->toBe('draft');
+});
+
+it('leaves a pending invoice pending when nothing has been paid', function () {
+    $invoice = invoiceForSettlement(status: 'pending');
+
+    app(InvoiceSettlement::class)->sync($invoice);
+
+    expect($invoice->fresh()->status)->toBe('pending');
+});
+
 it('leaves a voided invoice alone', function () {
     $invoice = invoiceForSettlement(status: 'void');
     InvoicePayment::factory()->forInvoice($invoice, 5000)->create();
@@ -108,4 +124,27 @@ it('rounds to two places so a cent never blocks settlement', function () {
 
     expect($invoice->fresh()->status)->toBe('paid')
         ->and(app(InvoiceSettlement::class)->balanceDue($invoice->fresh()))->toBe(0.0);
+});
+
+/**
+ * These three amounts are not arbitrary. Summed as binary floats they land on
+ * 1000.3299999999999, roughly 1.1e-13 short of the invoice total, so without
+ * the rounding in `amountPaid()` the invoice is left a fraction of a ngwei
+ * unpaid and never reaches `paid`. A split that happens to be exactly
+ * representable — 5000.00 as 1666.67 + 1666.67 + 1666.66, say — passes either
+ * way and guards nothing.
+ */
+it('settles an invoice split across payments that do not divide evenly', function () {
+    $invoice = invoiceForSettlement(1000.33);
+
+    foreach ([333.45, 333.44, 333.44] as $amount) {
+        InvoicePayment::factory()->forInvoice($invoice, $amount)->create();
+    }
+
+    $settlement = app(InvoiceSettlement::class);
+    $settlement->sync($invoice);
+
+    expect($settlement->amountPaid($invoice->fresh()))->toBe(1000.33)
+        ->and($settlement->balanceDue($invoice->fresh()))->toBe(0.0)
+        ->and($invoice->fresh()->status)->toBe('paid');
 });
