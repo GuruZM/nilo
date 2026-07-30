@@ -263,3 +263,24 @@ it('lists delivery notes for the active company', function () {
             ->where('deliveryNotes.0.number', 'DN-000001')
         );
 });
+
+/* ---------------------------- Signature block ---------------------------- */
+
+it('prints a receipt-of-goods signature block', function () {
+    [$user, $invoice] = invoiceWithLines();
+
+    $this->actingAs($user)->post("/invoices/{$invoice->id}/delivery-note");
+    $note = App\Models\DeliveryNote::query()->latest('id')->first();
+
+    expect($this->actingAs($user)->get("/delivery-notes/{$note->id}/preview")->getContent())
+        ->toContain('Received by')
+        ->toContain('Signature')
+        ->toContain('Date');
+});
+
+it('keeps the signature block off every other document type', function () {
+    [$user, $invoice] = invoiceWithLines();
+
+    expect($this->actingAs($user)->get("/invoices/{$invoice->id}/preview")->getContent())
+        ->not->toContain('Received by');
+});

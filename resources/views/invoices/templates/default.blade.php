@@ -775,6 +775,24 @@
                         </div>
                     @endif
 
+                    {{-- A delivery note that cannot be signed is not a delivery note. --}}
+                    @if($type === \App\Enums\DocumentType::DeliveryNote)
+                        <div style="margin-top:36px; display:grid; grid-template-columns:1fr 1fr 1fr; gap:24px;">
+                            <div>
+                                <div style="border-bottom:1px solid #9ca3af; height:32px;">{{ $invoice->received_by ?? '' }}</div>
+                                <div style="font-size:11px; color:#6b7280; margin-top:6px;">Received by</div>
+                            </div>
+                            <div>
+                                <div style="border-bottom:1px solid #9ca3af; height:32px;"></div>
+                                <div style="font-size:11px; color:#6b7280; margin-top:6px;">Signature</div>
+                            </div>
+                            <div>
+                                <div style="border-bottom:1px solid #9ca3af; height:32px;">{{ $date($invoice->received_on ?? null) }}</div>
+                                <div style="font-size:11px; color:#6b7280; margin-top:6px;">Date</div>
+                            </div>
+                        </div>
+                    @endif
+
                     {{-- Signature --}}
                     @if($showSignature)
                         <div style="margin-top: 18px; display:flex; justify-content:flex-end;">
