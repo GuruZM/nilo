@@ -118,6 +118,19 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
         Route::get('/{invoice}/print', [InvoiceController::class, 'print'])
             ->whereNumber('invoice')
             ->name('print');
+
+        // Money received against an invoice, and the receipt it prints as
+        Route::post('/{invoice}/payments', [\App\Http\Controllers\InvoicePaymentController::class, 'store'])
+            ->whereNumber('invoice')
+            ->name('payments.store');
+
+        Route::delete('/{invoice}/payments/{payment}', [\App\Http\Controllers\InvoicePaymentController::class, 'destroy'])
+            ->whereNumber(['invoice', 'payment'])
+            ->name('payments.destroy');
+
+        Route::get('/{invoice}/payments/{payment}/print', [\App\Http\Controllers\InvoicePaymentController::class, 'print'])
+            ->whereNumber(['invoice', 'payment'])
+            ->name('payments.print');
     });
 
     // Quotation management

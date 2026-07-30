@@ -122,6 +122,32 @@ function quotationPayload(App\Models\Client $client, App\Models\InvoiceTemplate 
 }
 
 /**
+ * An invoice worth `$total` in the acting user's active company, ready to be
+ * paid against.
+ *
+ * @return array{0: \App\Models\User, 1: \App\Models\Invoice}
+ */
+function payableInvoiceContext(float $total = 5000.0): array
+{
+    [$user, $client, $template] = invoiceCreationContext('client@example.com');
+
+    $invoice = App\Models\Invoice::query()->create([
+        'company_id' => $user->current_company_id,
+        'client_id' => $client->id,
+        'invoice_template_id' => $template->id,
+        'number' => 'INV-000001',
+        'issue_date' => '2026-07-01',
+        'due_date' => '2026-07-31',
+        'currency_code' => 'ZMW',
+        'subtotal' => $total,
+        'total' => $total,
+        'status' => 'sent',
+    ]);
+
+    return [$user, $invoice];
+}
+
+/**
  * @return array<string, mixed>
  */
 function invoicePayload(App\Models\Client $client, App\Models\InvoiceTemplate $template, bool $sendToClient): array
