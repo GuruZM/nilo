@@ -17,11 +17,22 @@ class ClientController extends Controller
     {
         $user = $request->user();
 
-        // ✅ Must have an active company
+        // ✅ Active company, falling back to the first one the user belongs to
         $companyId = (int) ($user->current_company_id ?? 0);
+
         if (! $companyId) {
-            throw ValidationException::withMessages([
-                'company_id' => 'No active company selected. Please select a company first.',
+            $companyId = (int) ($user->companies()->value('companies.id') ?? 0);
+
+            if ($companyId) {
+                $user->forceFill(['current_company_id' => $companyId])->save();
+            }
+        }
+
+        // ✅ A GET must render, not redirect back — show the empty state instead
+        if (! $companyId) {
+            return Inertia::render('Clients/Index', [
+                'clients' => [],
+                'hasActiveCompany' => false,
             ]);
         }
 
@@ -45,6 +56,7 @@ class ClientController extends Controller
 
         return Inertia::render('Clients/Index', [
             'clients' => $clients,
+            'hasActiveCompany' => true,
         ]);
     }
 
@@ -194,6 +206,7 @@ class ClientController extends Controller
 
         try {
             $clientModel->delete();
+
             return back()->with('success', 'Client deleted.');
         } catch (\Throwable $e) {
             Log::error('Client delete failed', [

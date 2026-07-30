@@ -5,13 +5,16 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import AppLayout from '@/layouts/app-layout';
-import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types/index.d';
 
-import HeadingSmall from '@/components/heading-small';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+import {
+    Chip,
+    EmptyState,
+    Panel,
+    PanelHeader,
+    PillButton,
+    pillButtonClass,
+} from '@/components/dashboard/primitives';
 import { cn } from '@/lib/utils';
 
 type Template = {
@@ -19,6 +22,12 @@ type Template = {
     name: string;
     is_default: boolean;
     created_at: string;
+};
+
+type FlashMessages = {
+    success?: string;
+    error?: string;
+    info?: string;
 };
 
 type TemplateModule = {
@@ -36,7 +45,7 @@ export default function InvoiceTemplatesIndex({
     templates: Template[];
     module: TemplateModule;
 }) {
-    const page = usePage() as any;
+    const { flash } = usePage<{ flash?: FlashMessages }>().props;
     const singularLabel = module.singularTitle.toLowerCase();
     const pluralLabel = module.pluralTitle.toLowerCase();
 
@@ -45,20 +54,11 @@ export default function InvoiceTemplatesIndex({
         { title: module.pluralTitle, href: module.basePath },
     ];
 
-    // Optional: show flash toasts globally if you aren’t already
     React.useEffect(() => {
-        const s = page.props?.flash?.success;
-        const e = page.props?.flash?.error;
-        const i = page.props?.flash?.info;
-
-        if (s) toast.success(s);
-        if (e) toast.error(e);
-        if (i) toast.message(i);
-    }, [
-        page.props?.flash?.success,
-        page.props?.flash?.error,
-        page.props?.flash?.info,
-    ]);
+        if (flash?.success) toast.success(flash.success);
+        if (flash?.error) toast.error(flash.error);
+        if (flash?.info) toast.message(flash.info);
+    }, [flash?.success, flash?.error, flash?.info]);
 
     const makeDefault = (id: number) => {
         router.post(
@@ -78,140 +78,119 @@ export default function InvoiceTemplatesIndex({
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title={module.pluralTitle} />
 
-            <SettingsLayout>
-                <motion.div
-                    initial={{ opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25, ease: 'easeOut' }}
-                    className="space-y-6"
-                >
-                    <div className="flex items-start justify-between gap-4">
-                        <div className="space-y-1">
-                            <HeadingSmall
-                                title={module.pluralTitle}
-                                description={`Create and customize ${pluralLabel} for the active company.`}
-                            />
-                        </div>
-
-                        <Button
-                            asChild
-                            className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                        >
-                            <Link href={module.createPath}>
-                                <Plus className="h-4 w-4" />
+            <motion.div
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="flex w-full flex-col gap-4 py-6"
+            >
+                <Panel>
+                    <PanelHeader
+                        icon={LayoutTemplate}
+                        title={module.pluralTitle}
+                        subtitle={`Create and customize ${pluralLabel} for the active company.`}
+                        action={
+                            <Link
+                                href={module.createPath}
+                                className={pillButtonClass('solid', 'sm')}
+                            >
+                                <Plus className="h-3.5 w-3.5" />
                                 New template
                             </Link>
-                        </Button>
-                    </div>
-
-                    <Separator />
+                        }
+                    />
 
                     {templates.length === 0 ? (
-                        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-                            <div className="flex items-start gap-3">
-                                <div className="grid h-11 w-11 place-items-center rounded-2xl bg-muted">
-                                    <LayoutTemplate className="h-6 w-6 opacity-80" />
-                                </div>
-                                <div className="space-y-1">
-                                    <div className="text-sm font-semibold">
-                                        No {pluralLabel} yet
-                                    </div>
-                                    <div className="text-sm text-muted-foreground">
-                                        Create your first {singularLabel} to
-                                        keep your{' '}
-                                        {module.type === 'quotation'
-                                            ? 'quotations'
-                                            : 'invoices'}{' '}
-                                        consistently branded.
-                                    </div>
-                                    <Button
-                                        className="mt-3 gap-2 rounded-xl"
-                                        onClick={() =>
-                                            router.visit(module.createPath)
-                                        }
-                                    >
-                                        <Plus className="h-4 w-4" />
-                                        Create template
-                                    </Button>
-                                </div>
-                            </div>
-                        </Card>
+                        <EmptyState
+                            icon={LayoutTemplate}
+                            title={`No ${pluralLabel} yet`}
+                            description={`Create your first ${singularLabel} to keep your ${
+                                module.type === 'quotation'
+                                    ? 'quotations'
+                                    : 'invoices'
+                            } consistently branded.`}
+                            action={
+                                <Link
+                                    href={module.createPath}
+                                    className={pillButtonClass('solid', 'md')}
+                                >
+                                    <Plus className="h-4 w-4" />
+                                    Create template
+                                </Link>
+                            }
+                        />
                     ) : (
-                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                            {templates.map((t) => (
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
+                            {templates.map((t, index) => (
                                 <motion.div
                                     key={t.id}
-                                    initial={{ opacity: 0, y: 10 }}
+                                    initial={{ opacity: 0, y: 8 }}
                                     animate={{ opacity: 1, y: 0 }}
-                                    transition={{ duration: 0.2 }}
+                                    transition={{
+                                        duration: 0.2,
+                                        delay: Math.min(0.03 * index, 0.18),
+                                    }}
+                                    className={cn(
+                                        'rounded-2xl p-4 transition',
+                                        t.is_default
+                                            ? 'bg-brand-50/70 dark:bg-brand-500/10'
+                                            : 'bg-muted/50 dark:bg-white/5',
+                                    )}
                                 >
-                                    <Card
-                                        className={cn(
-                                            'rounded-2xl border bg-background p-5 shadow-sm',
-                                            t.is_default &&
-                                                'border-foreground/20 bg-muted/20',
-                                        )}
-                                    >
-                                        <div className="flex items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="truncate text-sm font-semibold">
-                                                        {t.name}
-                                                    </div>
-                                                    {t.is_default && (
-                                                        <span className="inline-flex items-center gap-1 rounded-full bg-muted px-2 py-0.5 text-xs">
-                                                            <CheckCircle2 className="h-3.5 w-3.5" />
-                                                            Default
-                                                        </span>
-                                                    )}
-                                                </div>
-                                                <div className="mt-1 text-xs text-muted-foreground">
-                                                    Created{' '}
-                                                    {new Date(
-                                                        t.created_at,
-                                                    ).toLocaleDateString()}
-                                                </div>
-                                            </div>
-
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                        <div className="min-w-0">
                                             <div className="flex items-center gap-2">
-                                                <Button
-                                                    variant="outline"
-                                                    size="sm"
-                                                    className="rounded-xl"
-                                                    asChild
-                                                >
-                                                    <Link
-                                                        href={`${module.basePath}/${t.id}/edit`}
+                                                <div className="truncate text-sm font-semibold">
+                                                    {t.name}
+                                                </div>
+                                                {t.is_default ? (
+                                                    <Chip
+                                                        interactive={false}
+                                                        active
                                                     >
-                                                        Edit
-                                                    </Link>
-                                                </Button>
-
-                                                <Button
-                                                    variant={
-                                                        t.is_default
-                                                            ? 'secondary'
-                                                            : 'outline'
-                                                    }
-                                                    size="sm"
-                                                    className="gap-2 rounded-xl"
-                                                    onClick={() =>
-                                                        makeDefault(t.id)
-                                                    }
-                                                    disabled={t.is_default}
-                                                >
-                                                    <Star className="h-4 w-4" />
-                                                    Default
-                                                </Button>
+                                                        <CheckCircle2 className="h-3.5 w-3.5" />
+                                                        Default
+                                                    </Chip>
+                                                ) : null}
+                                            </div>
+                                            <div className="mt-1 text-xs text-muted-foreground">
+                                                Created{' '}
+                                                {new Date(
+                                                    t.created_at,
+                                                ).toLocaleDateString()}
                                             </div>
                                         </div>
-                                    </Card>
+
+                                        <div className="flex shrink-0 items-center gap-2">
+                                            <Link
+                                                href={`${module.basePath}/${t.id}/edit`}
+                                                className={pillButtonClass(
+                                                    'ghost',
+                                                    'sm',
+                                                )}
+                                            >
+                                                Edit
+                                            </Link>
+
+                                            <PillButton
+                                                variant="soft"
+                                                size="sm"
+                                                onClick={() =>
+                                                    makeDefault(t.id)
+                                                }
+                                                disabled={t.is_default}
+                                            >
+                                                <Star className="h-3.5 w-3.5" />
+                                                Default
+                                            </PillButton>
+                                        </div>
+                                    </div>
                                 </motion.div>
                             ))}
                         </div>
                     )}
-                </motion.div>
-            </SettingsLayout>
+                </Panel>
+            </motion.div>
         </AppLayout>
     );
 }

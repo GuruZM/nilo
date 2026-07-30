@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\InvoiceTemplate;
+use App\Services\SubscriptionLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -147,6 +148,12 @@ class InvoiceTemplateController extends Controller
 
         if (! $companyId) {
             return back()->with('error', 'Select a company first.');
+        }
+
+        $limiter = new SubscriptionLimitService($request->user());
+
+        if (! $limiter->canCreateTemplate($templateType, $companyId)) {
+            return back()->with('error', 'You have reached your template limit. Please upgrade your plan to create more templates.');
         }
 
         try {
@@ -366,7 +373,7 @@ class InvoiceTemplateController extends Controller
     /**
      * @return array{
      *     preset: string,
-     *     brand: array{primary: string, accent: string, font: string},
+     *     brand: array{primary: string, accent: string, header: string, font: string},
      *     layout: array{header: string, table: string, density: string},
      *     visibility: array{
      *         show_logo: bool,
@@ -386,6 +393,7 @@ class InvoiceTemplateController extends Controller
             'brand' => [
                 'primary' => '#111827',
                 'accent' => '#F59E0B',
+                'header' => '#111827',
                 'font' => 'Inter',
             ],
             'layout' => [

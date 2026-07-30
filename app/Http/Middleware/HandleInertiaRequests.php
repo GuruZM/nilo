@@ -3,8 +3,12 @@
 namespace App\Http\Middleware;
 
 use App\Models\Currency;
+use App\Services\CurrencyRollup;
+use App\Services\SubscriptionLimitService;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
+use Inertia\Inertia;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -44,8 +48,27 @@ class HandleInertiaRequests extends Middleware
 
             'name' => config('app.name'),
 
+            /**
+             * Keeps the `csrf-token` meta tag current.
+             *
+             * The tag is rendered once per document, but Inertia swaps pages
+             * without touching `<head>`, so it goes stale the moment the token
+             * is regenerated — on logout, or when a session expires. Hand-rolled
+             * `fetch` calls read the tag and then fail with a 419, while Inertia's
+             * own requests carry on working off the XSRF cookie. Marked `always`
+             * so partial reloads carry it too.
+             */
+            'csrfToken' => Inertia::always(csrf_token()),
+
             'auth' => [
                 'user' => $request->user(),
+                'roles' => function () use ($request) {
+                    if (! $request->user() || ! Schema::hasTable('roles')) {
+                        return [];
+                    }
+
+                    return $request->user()->getRoleNames();
+                },
             ],
 
             // ✅ Flash messages (for global toasts)
@@ -68,7 +91,7 @@ class HandleInertiaRequests extends Middleware
 
                 $all = $user->companies()
                     ->orderBy('name')
-                    ->get(['companies.id', 'companies.name']);
+                    ->get(['companies.id', 'companies.name', 'companies.type', 'companies.currency_code']);
 
                 $currentId = $user->current_company_id;
 
@@ -124,11 +147,41 @@ class HandleInertiaRequests extends Middleware
                 return [
                     'all' => $all,
                     'current' => $current,
+                    /** Lets converted figures say which day's rates they used. */
+                    'rates_as_of' => CurrencyRollup::ratesAsOf()?->toIso8601String(),
+                ];
+            },
+
+            'subscription' => function () use ($request) {
+                $user = $request->user();
+
+                if (! $user) {
+                    return null;
+                }
+
+                $subscription = $user->subscription;
+                $plan = $subscription?->plan;
+                $limiter = new SubscriptionLimitService($user);
+
+                return [
+                    'plan' => $plan ? [
+                        'id' => $plan->id,
+                        'name' => $plan->name,
+                        'slug' => $plan->slug,
+                    ] : null,
+                    'status' => $subscription?->status,
+                    'usage' => $limiter->usage(),
                 ];
             },
 
             'sidebarOpen' => ! $request->hasCookie('sidebar_state')
                 || $request->cookie('sidebar_state') === 'true',
+
+            // ✅ Which social login providers are enabled (drives the auth buttons)
+            'oauth' => [
+                'facebook' => (bool) config('services.facebook.enabled'),
+                'linkedin' => (bool) config('services.linkedin-openid.enabled'),
+            ],
         ];
     }
 }

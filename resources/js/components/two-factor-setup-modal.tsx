@@ -1,4 +1,5 @@
 import InputError from '@/components/input-error';
+import NiloSpinner from '@/components/nilo-spinner';
 import { Button } from '@/components/ui/button';
 import {
     Dialog,
@@ -17,7 +18,7 @@ import { OTP_MAX_LENGTH } from '@/hooks/use-two-factor-auth';
 import { confirm } from '@/routes/two-factor';
 import { Form } from '@inertiajs/react';
 import { REGEXP_ONLY_DIGITS } from 'input-otp';
-import { Check, Copy, Loader2, ScanLine } from 'lucide-react';
+import { Check, Copy, ScanLine } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import AlertError from './alert-error';
 
@@ -79,7 +80,7 @@ function TwoFactorSetupStep({
                                         }}
                                     />
                                 ) : (
-                                    <Loader2 className="flex size-4 animate-spin" />
+                                    <NiloSpinner size={16} />
                                 )}
                             </div>
                         </div>
@@ -102,7 +103,7 @@ function TwoFactorSetupStep({
                         <div className="flex w-full items-stretch overflow-hidden rounded-xl border border-border">
                             {!manualSetupKey ? (
                                 <div className="flex h-full w-full items-center justify-center bg-muted p-3">
-                                    <Loader2 className="size-4 animate-spin" />
+                                    <NiloSpinner size={16} />
                                 </div>
                             ) : (
                                 <>

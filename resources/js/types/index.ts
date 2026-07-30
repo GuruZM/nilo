@@ -1,9 +1,15 @@
 export type {
     Auth,
     BreadcrumbItem,
+    Coupon,
+    CouponQuote,
     NavGroup,
     NavItem,
+    Plan,
+    PlanData,
     SharedData,
+    SubscriptionData,
+    UsageData,
     User,
 } from './index.d';
 

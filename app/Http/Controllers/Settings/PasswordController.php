@@ -15,20 +15,30 @@ class PasswordController extends Controller
     /**
      * Show the user's password settings page.
      */
-    public function edit(): Response
+    public function edit(Request $request): Response
     {
-        return Inertia::render('settings/password');
+        return Inertia::render('settings/password', [
+            'hasPassword' => $request->user()->hasPassword(),
+        ]);
     }
 
     /**
      * Update the user's password.
+     *
+     * Accounts created through a social provider have no password to confirm,
+     * so requiring one would leave them unable to ever set a first password.
      */
     public function update(Request $request): RedirectResponse
     {
-        $validated = $request->validate([
-            'current_password' => ['required', 'current_password'],
+        $rules = [
             'password' => ['required', Password::defaults(), 'confirmed'],
-        ]);
+        ];
+
+        if ($request->user()->hasPassword()) {
+            $rules['current_password'] = ['required', 'current_password'];
+        }
+
+        $validated = $request->validate($rules);
 
         $request->user()->update([
             'password' => Hash::make($validated['password']),

@@ -3,7 +3,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Invoice {{ data_get($invoice, 'number', '') }}</title>
+    <title>{{ ($documentType ?? 'invoice') === 'quotation' ? 'Quotation' : 'Invoice' }} {{ data_get($invoice, 'number', '') }}</title>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
 
     @php
@@ -27,6 +27,9 @@
         $accent  = (string)($brand['accent']  ?? data_get($s, 'brand.accent_color')  ?? '#F59E0B');
         $fontKey = (string)($brand['font']    ?? data_get($s, 'typography.font')     ?? 'Inter');
 
+        // Templates saved before the header color existed drew the header band from the primary color.
+        $headerColor = (string)($brand['header'] ?? $primary);
+
         $headerLayout = (string)($layout['header'] ?? 'split'); // split | left | center
         $tableStyle   = (string)($layout['table'] ?? 'striped'); // striped | lined | clean
         $density      = (string)($layout['density'] ?? 'normal'); // compact | normal | airy
@@ -38,6 +41,10 @@
         $showNotes         = (bool)($visibility['show_notes'] ?? true);
         $documentMode      = (string)($mode ?? 'preview');
 
+        // The app embeds this document in an iframe already sized to A4, so it must
+        // drop the standalone-page chrome and never shrink itself to the viewport.
+        $isEmbedded        = $documentMode === 'embed';
+
         // ✅ now used by blade too
         $showBankDetails   = (bool)($visibility['show_bank_details'] ?? false);
         $showSignature     = (bool)($visibility['show_signature'] ?? false);
@@ -47,8 +54,27 @@
 
         $invoiceNumber = $isArray ? ($invoice['number'] ?? '—') : ($invoice->number ?? '—');
 
+        /**
+         * Quotations render through this same template. Only the wording and the
+         * second date differ, so the document type drives those rather than a
+         * near-identical copy of the whole sheet.
+         */
+        $documentType  = (string)($documentType ?? 'invoice');
+        $isQuotation   = $documentType === 'quotation';
+        $documentNoun  = $isQuotation ? 'quotation' : 'invoice';
+        $documentTitle = strtoupper($documentNoun);
+
         $issueDate = $isArray ? ($invoice['issue_date'] ?? null) : ($invoice->issue_date ?? null);
         $dueDate   = $isArray ? ($invoice['due_date'] ?? null) : ($invoice->due_date ?? null);
+
+        if ($isQuotation) {
+            $dueDate = $isArray ? ($invoice['valid_until'] ?? null) : ($invoice->valid_until ?? null);
+        }
+
+        $secondDateLabel = $isQuotation ? 'Valid until' : 'Due';
+        $closingLine = $isQuotation
+            ? 'Thank you for the opportunity. This quotation is valid until the date shown above.'
+            : 'Thank you for your business. Kindly settle within due date.';
 
         $currencyCode = $currency->code ?? ($isArray ? ($invoice['currency_code'] ?? 'ZMW') : ($invoice->currency_code ?? 'ZMW'));
         $symbol       = $currency->symbol ?? '';
@@ -157,6 +183,7 @@
     <style>
         :root{
             --primary: {{ $primary }};
+            --header: {{ $headerColor }};
             --accent: {{ $accent }};
             --accentSoft: {{ $accentSoft }};
             --muted: #6b7280;
@@ -250,10 +277,26 @@
             box-shadow: 0 18px 60px rgba(0,0,0,0.12);
         }
 
+@if($isEmbedded)
+        html, body{
+            background: #ffffff;
+            overflow-x: hidden;
+        }
+
+        .page-wrap{ padding: 0; }
+
+        .sheet{
+            width: 210mm;
+            max-width: none;
+            border-radius: 0;
+            box-shadow: none;
+        }
+@endif
+
         /* HERO */
         .hero{
             position: relative;
-            background: var(--primary);
+            background: var(--header);
             color: #fff;
         }
         .hero-inner{
@@ -272,6 +315,11 @@
             flex-direction: column;
             align-items: center;
             text-align: center;
+        }
+        .hero-left .hero-row{
+            flex-direction: column;
+            align-items: flex-start;
+            text-align: left;
         }
 
         .logo{
@@ -519,10 +567,12 @@
 </head>
 
 <body>
+{{-- The toolbar is a screen affordance; an attached PDF or embedded preview must not carry it. --}}
+@if(! in_array($documentMode, ['pdf', 'embed'], true))
 <div class="screen-toolbar">
     <div class="screen-toolbar-inner">
         <div class="screen-toolbar-copy">
-            {{ $documentMode === 'print' ? 'Print-ready invoice' : 'Preview-ready invoice' }}.
+            {{ $documentMode === 'print' ? 'Print-ready' : 'Preview-ready' }} {{ $documentNoun }}.
             Use Print to send to a printer or choose "Save as PDF" to download it.
         </div>
 
@@ -536,12 +586,13 @@
         </div>
     </div>
 </div>
+@endif
 
 <div class="page-wrap">
     <div class="sheet">
 
         {{-- =================== HERO HEADER =================== --}}
-        <div class="hero {{ $headerLayout === 'center' ? 'hero-center' : '' }}">
+        <div class="hero {{ $headerLayout === 'center' ? 'hero-center' : ($headerLayout === 'left' ? 'hero-left' : '') }}">
             <div class="hero-inner">
                 <div class="hero-row">
                     <div style="display:flex; gap:14px; align-items:center;">
@@ -571,12 +622,12 @@
                         </div>
                     </div>
 
-                    <div class="{{ $headerLayout === 'center' ? '' : 'right-align' }}">
-                        <div class="doc-title">INVOICE</div>
+                    <div class="{{ $headerLayout === 'split' ? 'right-align' : '' }}">
+                        <div class="doc-title">{{ $documentTitle }}</div>
                         <div class="doc-meta">
-                            <div>Invoice No: {{ $invoiceNumber }}</div>
+                            <div>{{ $isQuotation ? 'Quotation' : 'Invoice' }} No: {{ $invoiceNumber }}</div>
                             <div>Date: {{ $issueDate ?? '—' }}</div>
-                            <div>Due: {{ $dueDate ?? '—' }}</div>
+                            <div>{{ $secondDateLabel }}: {{ $dueDate ?? '—' }}</div>
                         </div>
                     </div>
                 </div>
@@ -689,7 +740,7 @@
                         <div class="card-body">{{ $notesText }}</div>
                     @else
                         <div class="card-body" style="white-space: normal;">
-                            Thank you for your business. Kindly settle within due date.
+                            {{ $closingLine }}
                         </div>
                     @endif
 
@@ -711,13 +762,10 @@
             </div>
 
             {{-- Footer --}}
+            {{-- Only the company's own footer belongs on a document sent to its clients. --}}
             @if(!empty($footerHtml))
                 <div class="footer">
                     {!! $footerHtml !!}
-                </div>
-            @else
-                <div class="footer">
-                    Powered by {{ config('app.name') }}
                 </div>
             @endif
         </div>

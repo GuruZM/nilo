@@ -108,7 +108,7 @@ const Chatbot: React.FC = () => {
                 <div className="group relative">
                     <button
                         onClick={() => setIsOpen(true)}
-                        className="transform rounded-full bg-[#00417d] p-4 text-white shadow-lg transition-all duration-300 hover:scale-110 hover:shadow-xl"
+                        className="transform rounded-full bg-brand p-4 text-white shadow-lg transition-all duration-300 hover:scale-110 hover:shadow-xl"
                         aria-label="Open chatbot"
                     >
                         <MessageCircle className="h-6 w-6" />
@@ -120,7 +120,7 @@ const Chatbot: React.FC = () => {
             ) : (
                 <div className="flex h-96 w-80 flex-col rounded-2xl border border-slate-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-800">
                     {/* Chat Header */}
-                    <div className="flex items-center justify-between rounded-t-2xl bg-[#00417d] p-4 text-white">
+                    <div className="flex items-center justify-between rounded-t-2xl bg-brand p-4 text-white">
                         <div className="flex items-start space-x-3">
                             <div className="flex h-8 w-8 items-center justify-center rounded-full bg-white/20">
                                 <Bot className="h-4 w-4" />
@@ -151,7 +151,7 @@ const Chatbot: React.FC = () => {
                                     className={`max-w-xs rounded-2xl px-4 py-2 ${
                                         message.isBot
                                             ? 'bg-slate-100 text-slate-800 dark:bg-slate-700 dark:text-white'
-                                            : 'bg-[#00417d] text-white'
+                                            : 'bg-brand text-white'
                                     }`}
                                 >
                                     <p className="text-sm">{message.text}</p>
@@ -192,7 +192,7 @@ const Chatbot: React.FC = () => {
                             />
                             <button
                                 onClick={sendMessage}
-                                className="rounded-lg bg-[#00417d] p-2 text-white transition-all duration-300 hover:shadow-lg"
+                                className="rounded-lg bg-brand p-2 text-white transition-all duration-300 hover:shadow-lg"
                             >
                                 <Send className="h-4 w-4" />
                             </button>

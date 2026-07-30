@@ -2,11 +2,15 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
 class Client extends Model
 {
-         protected $fillable = [
+    /** @use HasFactory<\Database\Factories\ClientFactory> */
+    use HasFactory;
+
+    protected $fillable = [
         'company_id',
         'name',
         'email',
@@ -16,7 +20,7 @@ class Client extends Model
         'city',
         'country',
         'notes',
-            'contact_person',
+        'contact_person',
     ];
 
     public function company(): BelongsTo

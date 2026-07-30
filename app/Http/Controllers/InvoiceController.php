@@ -2,21 +2,30 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\InvoiceToClient;
 use App\Models\Client;
+use App\Models\Company;
 use App\Models\Currency;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
 use App\Models\InvoiceTemplate;
+use App\Services\DocumentPrerequisites;
+use App\Services\InvoiceDocumentRenderer;
+use App\Services\SubscriptionLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\View;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class InvoiceController extends Controller
 {
+    public function __construct(private InvoiceDocumentRenderer $documents) {}
+
     private function resolveCompanyId(Request $request): ?int
     {
         $user = $request->user();
@@ -55,77 +64,126 @@ class InvoiceController extends Controller
         return $companyId;
     }
 
+    /**
+     * Rejects the write before any validation runs when the company, template,
+     * client or currency prerequisites are not met. The UI hides the form in this
+     * state, so reaching here means the gate was bypassed.
+     */
+    private function guardPrerequisites(?int $companyId): void
+    {
+        $prerequisites = DocumentPrerequisites::forInvoices($companyId);
+
+        if ($prerequisites->canCreate()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'prerequisites' => $prerequisites->blockers()[0]['description'],
+        ]);
+    }
+
+    /**
+     * Scopes the template to the active company and the invoice type so a template
+     * id belonging to another company (or to quotations) cannot be submitted.
+     */
+    private function templateRule(int $companyId): Exists
+    {
+        return Rule::exists('invoice_templates', 'id')
+            ->where('company_id', $companyId)
+            ->where('type', 'invoice');
+    }
+
+    private function clientRule(int $companyId): Exists
+    {
+        return Rule::exists('clients', 'id')->where('company_id', $companyId);
+    }
+
     private function invoiceTemplateDefaults(): array
     {
-        return [
-            'preset' => 'wave_premium',
-            'brand' => [
-                'primary' => '#111827',
-                'accent' => '#F59E0B',
-                'font' => 'Inter',
-            ],
-            'layout' => [
-                'header' => 'split',
-                'table' => 'striped',
-                'density' => 'normal',
-            ],
-            'visibility' => [
-                'show_logo' => true,
-                'show_client_email' => true,
-                'show_contact_person' => true,
-                'show_terms' => true,
-                'show_notes' => true,
-                'show_bank_details' => false,
-                'show_signature' => false,
-            ],
-        ];
+        return $this->documents->templateDefaults();
     }
 
     private function resolveInvoiceTemplate(int $companyId, ?int $templateId = null): ?InvoiceTemplate
     {
-        if (! empty($templateId)) {
-            $template = InvoiceTemplate::query()
-                ->where('company_id', $companyId)
-                ->where('type', 'invoice')
-                ->where('id', $templateId)
-                ->first();
-
-            if ($template) {
-                return $template;
-            }
-        }
-
-        return InvoiceTemplate::query()
-            ->where('company_id', $companyId)
-            ->where('type', 'invoice')
-            ->orderByDesc('is_default')
-            ->orderByDesc('id')
-            ->first();
+        return $this->documents->resolveTemplate($companyId, $templateId);
     }
 
     private function normalizedTemplateSettings(?InvoiceTemplate $template): array
     {
-        $defaults = $this->invoiceTemplateDefaults();
-        $saved = is_array($template?->settings) ? $template->settings : [];
+        return $this->documents->normalizedSettings($template);
+    }
 
-        $settings = array_replace_recursive($defaults, $saved);
-        $settings['visibility'] = array_merge(
-            $defaults['visibility'],
-            array_map(fn ($v) => (bool) $v, (array) ($settings['visibility'] ?? []))
-        );
+    /**
+     * Totals for an invoice.
+     *
+     * Prices are entered tax-inclusive: what you type on a line is what the
+     * client pays for it. Discounts come off that gross figure, then the tax
+     * is carved back out of what remains, so `subtotal` is the net (tax
+     * exclusive) amount and `total` is the gross (tax inclusive) one.
+     *
+     *   items_gross   Σ qty × price           5000.00
+     *   − discounts                              0.00
+     *   = total       gross, tax inclusive    5000.00
+     *     subtotal    total ÷ (1 + rate)      4310.34
+     *     tax_total   total − subtotal         689.66
+     *
+     * Tax is derived by subtraction rather than multiplication so subtotal and
+     * tax always add back to exactly the total, with no rounding drift.
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array{items: array<int, array<string, mixed>>, items_gross: float, subtotal: float, line_discount_total: float, invoice_discount: float, discount_total: float, tax_percent: float, tax_total: float, total: float}
+     */
+    private function computeTotals(array $items, float $invoiceDiscount, float $taxPercent): array
+    {
+        $itemsGross = 0.0;
+        $lineDiscountTotal = 0.0;
 
-        return $settings;
+        foreach ($items as $i => $row) {
+            $qty = (float) $row['quantity'];
+            $price = (float) $row['unit_price'];
+            $discount = (float) ($row['discount'] ?? 0);
+
+            $lineBase = $qty * $price;
+
+            $items[$i]['discount'] = $discount;
+            $items[$i]['tax'] = 0; // tax is charged on the invoice, not the line
+            $items[$i]['line_total'] = max(0, $lineBase - $discount);
+            $items[$i]['sort_order'] = $i;
+
+            $itemsGross += $lineBase;
+            $lineDiscountTotal += $discount;
+        }
+
+        $discountTotal = $lineDiscountTotal + $invoiceDiscount;
+
+        $total = round(max(0, $itemsGross - $discountTotal), 2);
+        $subtotal = round($total / (1 + ($taxPercent / 100)), 2);
+        $taxTotal = round($total - $subtotal, 2);
+
+        return [
+            'items' => $items,
+            'items_gross' => $itemsGross,
+            'subtotal' => $subtotal,
+            'line_discount_total' => $lineDiscountTotal,
+            'invoice_discount' => $invoiceDiscount,
+            'discount_total' => $discountTotal,
+            'tax_percent' => $taxPercent,
+            'tax_total' => $taxTotal,
+            'total' => $total,
+        ];
     }
 
     public function index(Request $request)
     {
         $companyId = $this->resolveCompanyId($request);
+        $prerequisites = DocumentPrerequisites::forInvoices($companyId);
 
         if (! $companyId) {
             return Inertia::render('Invoices/Index', [
                 'invoices' => [],
                 'clients' => [],
                 'hasActiveCompany' => false,
+                'prerequisites' => $prerequisites->toArray(),
             ]);
         }
 
@@ -160,17 +218,19 @@ class InvoiceController extends Controller
             'invoices' => $invoices,
             'clients' => $clients,
             'hasActiveCompany' => true,
+            'prerequisites' => $prerequisites->toArray(),
         ]);
     }
 
     public function previewNew(Request $request)
     {
         $companyId = $this->companyId($request);
+        $this->guardPrerequisites($companyId);
         $user = $request->user();
 
         $data = $request->validate([
-            'client_id' => ['required', 'integer', Rule::exists('clients', 'id')],
-            'invoice_template_id' => ['nullable', 'integer', Rule::exists('invoice_templates', 'id')],
+            'client_id' => ['required', 'integer', $this->clientRule($companyId)],
+            'invoice_template_id' => ['required', 'integer', $this->templateRule($companyId)],
             'title' => ['nullable', 'string', 'max:190'],
             'reference' => ['nullable', 'string', 'max:190'],
             'issue_date' => ['required', 'date'],
@@ -179,7 +239,8 @@ class InvoiceController extends Controller
             'status' => ['required', Rule::in(['pending', 'paid'])],
             'notes' => ['nullable', 'string'],
             'terms' => ['nullable', 'string'],
-            'overall_discount' => ['nullable', 'numeric', 'min:0'],
+            'invoice_discount' => ['nullable', 'numeric', 'min:0'],
+            'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
 
             'items' => ['required', 'array', 'min:1'],
             'items.*.description' => ['required', 'string', 'max:255'],
@@ -187,7 +248,8 @@ class InvoiceController extends Controller
             'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'items.*.discount' => ['nullable', 'numeric', 'min:0'],
-            'items.*.tax' => ['nullable', 'numeric', 'min:0'],
+
+            'embed' => ['nullable', 'boolean'],
         ]);
 
         $client = Client::query()
@@ -222,33 +284,13 @@ class InvoiceController extends Controller
             ->where('code', strtoupper($data['currency_code']))
             ->first();
 
-        // totals
-        $subtotal = 0.0;
-        $discountTotal = 0.0;
-        $taxTotal = 0.0;
+        $totals = $this->computeTotals(
+            $data['items'],
+            (float) ($data['invoice_discount'] ?? 0),
+            (float) ($data['tax_percent'] ?? 0),
+        );
 
-        $items = $data['items'];
-        foreach ($items as $i => $row) {
-            $qty = (float) $row['quantity'];
-            $price = (float) $row['unit_price'];
-            $disc = (float) ($row['discount'] ?? 0);
-            $tax = (float) ($row['tax'] ?? 0);
-
-            $lineBase = $qty * $price;
-            $lineTotal = max(0, $lineBase - $disc + $tax);
-
-            $items[$i]['discount'] = $disc;
-            $items[$i]['tax'] = $tax;
-            $items[$i]['line_total'] = $lineTotal;
-            $items[$i]['sort_order'] = $i;
-
-            $subtotal += $lineBase;
-            $discountTotal += $disc;
-            $taxTotal += $tax;
-        }
-
-        $overallDiscount = (float) ($data['overall_discount'] ?? 0);
-        $total = max(0, $subtotal - $discountTotal - $overallDiscount + $taxTotal);
+        $items = $totals['items'];
 
         $company = $user->companies()
             ->where('companies.id', $companyId)
@@ -277,15 +319,16 @@ class InvoiceController extends Controller
                 'status' => $data['status'],
                 'notes' => $data['notes'] ?? null,
                 'terms' => $data['terms'] ?? null,
-                'overall_discount' => $overallDiscount,
-                'subtotal' => $subtotal,
-                'discount_total' => $discountTotal,
-                'tax_total' => $taxTotal,
-                'total' => $total,
+                'invoice_discount' => $totals['invoice_discount'],
+                'subtotal' => $totals['subtotal'],
+                'discount_total' => $totals['discount_total'],
+                'tax_percent' => $totals['tax_percent'],
+                'tax_total' => $totals['tax_total'],
+                'total' => $totals['total'],
             ],
             'items' => $items,
             'settings' => $settings,
-            'mode' => 'preview',
+            'mode' => filter_var($data['embed'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 'embed' : 'preview',
         ])->render();
 
         return response($html);
@@ -328,13 +371,15 @@ class InvoiceController extends Controller
     public function create(Request $request)
     {
         $companyId = $this->resolveCompanyId($request);
+        $prerequisites = DocumentPrerequisites::forInvoices($companyId);
 
-        if (! $companyId) {
+        if (! $prerequisites->canCreate()) {
             return Inertia::render('Invoices/Create', [
                 'clients' => [],
                 'templates' => [],
-                'defaultCurrencyCode' => strtoupper((string) ($request->user()?->current_currency_code ?? '')),
-                'hasActiveCompany' => false,
+                'defaultCurrencyCode' => Company::defaultCurrencyCodeFor($companyId, $request->user()?->current_currency_code),
+                'hasActiveCompany' => $prerequisites->hasActiveCompany(),
+                'prerequisites' => $prerequisites->toArray(),
             ]);
         }
 
@@ -345,18 +390,21 @@ class InvoiceController extends Controller
 
         $templates = InvoiceTemplate::query()
             ->where('company_id', $companyId)
+            ->where('type', 'invoice')
             ->orderByDesc('is_default')
             ->orderBy('name')
             ->get(['id', 'name', 'is_default']);
 
-        // currency default: use shared active currency if present, else ZMW
-        $activeCurrencyCode = strtoupper((string) ($request->user()?->current_currency_code ?? 'ZMW'));
+        // currency default: the company's billing currency, else the user's active currency, else ZMW
+        $activeCurrencyCode = Company::defaultCurrencyCodeFor($companyId, $request->user()?->current_currency_code);
 
         return Inertia::render('Invoices/Create', [
             'clients' => $clients,
             'templates' => $templates,
             'defaultCurrencyCode' => $activeCurrencyCode,
             'hasActiveCompany' => true,
+            'prerequisites' => $prerequisites->toArray(),
+            'limitNotice' => $request->session()->get('limit_notice'),
         ]);
     }
 
@@ -398,12 +446,18 @@ class InvoiceController extends Controller
     public function store(Request $request)
     {
         $companyId = $this->companyId($request);
+        $this->guardPrerequisites($companyId);
         $user = $request->user();
+        $limiter = new SubscriptionLimitService($user);
+
+        if (! $limiter->canCreateInvoice($companyId)) {
+            return back()->with('limit_notice', $limiter->limitNotice('invoices'));
+        }
 
         try {
             $data = $request->validate([
-                'client_id' => ['required', 'integer', Rule::exists('clients', 'id')],
-                'invoice_template_id' => ['nullable', 'integer', Rule::exists('invoice_templates', 'id')],
+                'client_id' => ['required', 'integer', $this->clientRule($companyId)],
+                'invoice_template_id' => ['required', 'integer', $this->templateRule($companyId)],
 
                 'title' => ['nullable', 'string', 'max:190'],
                 'reference' => ['nullable', 'string', 'max:190'],
@@ -430,13 +484,18 @@ class InvoiceController extends Controller
                 // ✅ NEW: overall invoice discount
                 'invoice_discount' => ['nullable', 'numeric', 'min:0'],
 
+                // ✅ NEW: whole-invoice tax rate
+                'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+
+                // ✅ NEW: email the finished invoice to the client
+                'send_to_client' => ['nullable', 'boolean'],
+
                 'items' => ['required', 'array', 'min:1'],
                 'items.*.description' => ['required', 'string', 'max:255'],
                 'items.*.unit' => ['nullable', 'string', 'max:50'],
                 'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
                 'items.*.unit_price' => ['required', 'numeric', 'min:0'],
                 'items.*.discount' => ['nullable', 'numeric', 'min:0'],
-                'items.*.tax' => ['nullable', 'numeric', 'min:0'],
             ]);
 
             // ✅ Ensure client belongs to active company
@@ -489,47 +548,21 @@ class InvoiceController extends Controller
                 $data['next_run_at'] = null;
             }
 
-            // ✅ Compute totals (includes overall invoice_discount)
-            $subtotal = 0.0;
-            $lineDiscountTotal = 0.0;
-            $taxTotal = 0.0;
+            // ✅ Compute totals (whole-invoice discount and tax rate)
+            $totals = $this->computeTotals(
+                $data['items'],
+                (float) ($data['invoice_discount'] ?? 0),
+                (float) ($data['tax_percent'] ?? 0),
+            );
 
-            $items = $data['items'];
-
-            foreach ($items as $i => $row) {
-                $qty = (float) $row['quantity'];
-                $price = (float) $row['unit_price'];
-                $disc = (float) ($row['discount'] ?? 0);
-                $tax = (float) ($row['tax'] ?? 0);
-
-                $lineBase = $qty * $price;
-                $lineTotal = max(0, $lineBase - $disc + $tax);
-
-                $items[$i]['discount'] = $disc;
-                $items[$i]['tax'] = $tax;
-                $items[$i]['line_total'] = $lineTotal;
-                $items[$i]['sort_order'] = $i;
-
-                $subtotal += $lineBase;
-                $lineDiscountTotal += $disc;
-                $taxTotal += $tax;
-            }
-
-            $invoiceDiscount = (float) ($data['invoice_discount'] ?? 0);
-            $discountTotal = $lineDiscountTotal + $invoiceDiscount;
-            $total = max(0, $subtotal - $discountTotal + $taxTotal);
+            $items = $totals['items'];
 
             $invoice = DB::transaction(function () use (
                 $companyId,
                 $user,
                 $data,
                 $items,
-                $subtotal,
-                $lineDiscountTotal,
-                $invoiceDiscount,
-                $discountTotal,
-                $taxTotal,
-                $total
+                $totals
             ) {
                 $invoice = Invoice::create([
                     'company_id' => $companyId,
@@ -546,15 +579,15 @@ class InvoiceController extends Controller
 
                     'currency_code' => strtoupper($data['currency_code']),
 
-                    'subtotal' => $subtotal,
+                    'subtotal' => $totals['subtotal'],
 
-                    // ✅ keep both so UI can show breakdown nicely
-                    'line_discount_total' => $lineDiscountTotal,     // add column if you want this
-                    'invoice_discount' => $invoiceDiscount,          // add column if you want this
-                    'discount_total' => $discountTotal,
+                    // ✅ keep both so UI can show the breakdown
+                    'invoice_discount' => $totals['invoice_discount'],
+                    'discount_total' => $totals['discount_total'],
 
-                    'tax_total' => $taxTotal,
-                    'total' => $total,
+                    'tax_percent' => $totals['tax_percent'],
+                    'tax_total' => $totals['tax_total'],
+                    'total' => $totals['total'],
 
                     // ✅ NEW: pending/paid
                     'status' => $data['status'],
@@ -589,9 +622,12 @@ class InvoiceController extends Controller
                 return $invoice;
             });
 
+            $delivery = $this->deliverToClient($invoice, (bool) ($data['send_to_client'] ?? false));
+
             // ✅ Inertia-friendly redirect with flash (this is what makes onSuccess + global flash work)
             return redirect("/invoices/{$invoice->id}")
-                ->with('success', 'Invoice created.');
+                ->with($delivery['level'], $delivery['message'])
+                ->with('invoice_created', true);
         } catch (ValidationException $e) {
             throw $e;
         } catch (\Throwable $e) {
@@ -604,6 +640,54 @@ class InvoiceController extends Controller
             throw ValidationException::withMessages([
                 'invoice' => 'Failed to create invoice. Please try again.',
             ]);
+        }
+    }
+
+    /**
+     * Queues the invoice to its client when the creator asked for it. The
+     * invoice is already saved by this point, so nothing here may throw — a
+     * delivery problem downgrades the flash message rather than losing work.
+     *
+     * @return array{level: string, message: string}
+     */
+    private function deliverToClient(Invoice $invoice, bool $requested): array
+    {
+        if (! $requested) {
+            return ['level' => 'success', 'message' => 'Invoice created.'];
+        }
+
+        $invoice->loadMissing(['client', 'company']);
+        $email = trim((string) $invoice->client?->email);
+
+        if ($email === '') {
+            return [
+                'level' => 'info',
+                'message' => 'Invoice created, but it was not emailed because the client has no email address.',
+            ];
+        }
+
+        try {
+            Mail::to($email)->send(new InvoiceToClient($invoice));
+
+            /** An emailed invoice is no longer merely pending. */
+            if ($invoice->status === 'pending') {
+                $invoice->update(['status' => 'sent']);
+            }
+
+            return [
+                'level' => 'success',
+                'message' => 'Invoice created and queued to '.$email.'.',
+            ];
+        } catch (\Throwable $e) {
+            Log::error('Invoice email failed', [
+                'invoice_id' => $invoice->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'level' => 'info',
+                'message' => 'Invoice created, but the email could not be sent. You can send it again from the invoice.',
+            ];
         }
     }
 
@@ -658,6 +742,9 @@ class InvoiceController extends Controller
         ]);
 
         return Inertia::render('Invoices/show', [
+            /** Only true on the redirect straight after creating it. */
+            'justCreated' => (bool) $request->session()->get('invoice_created', false),
+
             'invoice' => [
                 'id' => $invoice->id,
                 'number' => $invoice->number,
@@ -671,6 +758,12 @@ class InvoiceController extends Controller
                 'subtotal' => (float) $invoice->subtotal,
                 'discount_total' => (float) $invoice->discount_total,
                 'invoice_discount' => (float) ($invoice->invoice_discount ?? 0),
+
+                /** `discount_total` carries both; split it so neither is shown twice. */
+                'line_discount' => (float) $invoice->discount_total
+                    - (float) ($invoice->invoice_discount ?? 0),
+
+                'tax_percent' => (float) ($invoice->tax_percent ?? 0),
                 'tax_total' => (float) $invoice->tax_total,
                 'total' => (float) $invoice->total,
 

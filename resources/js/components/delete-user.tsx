@@ -1,7 +1,14 @@
 import ProfileController from '@/actions/App/Http/Controllers/Settings/ProfileController';
-import HeadingSmall from '@/components/heading-small';
+import {
+    FormField,
+    Panel,
+    PanelHeader,
+    PillButton,
+    fieldInputClass,
+    pillButtonClass,
+} from '@/components/dashboard/primitives';
 import InputError from '@/components/input-error';
-import { Button } from '@/components/ui/button';
+import NiloSpinner from '@/components/nilo-spinner';
 import {
     Dialog,
     DialogClose,
@@ -11,38 +18,49 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import { Form } from '@inertiajs/react';
+import { TriangleAlert } from 'lucide-react';
 import { useRef } from 'react';
 
 export default function DeleteUser() {
     const passwordInput = useRef<HTMLInputElement>(null);
 
     return (
-        <div className="space-y-6">
-            <HeadingSmall
+        <Panel>
+            <PanelHeader
                 title="Delete account"
-                description="Delete your account and all of its resources"
+                subtitle="Delete your account and all of its resources"
             />
-            <div className="space-y-4 rounded-lg border border-red-100 bg-red-50 p-4 dark:border-red-200/10 dark:bg-red-700/10">
-                <div className="relative space-y-0.5 text-red-600 dark:text-red-100">
-                    <p className="font-medium">Warning</p>
-                    <p className="text-sm">
-                        Please proceed with caution, this cannot be undone.
-                    </p>
+
+            <div className="flex flex-col gap-3 rounded-2xl bg-destructive/8 p-4 dark:bg-destructive/15">
+                <div className="flex items-start gap-2.5">
+                    <TriangleAlert
+                        className="mt-0.5 h-4 w-4 shrink-0 text-destructive"
+                        aria-hidden
+                    />
+                    <div>
+                        <p className="text-sm font-semibold text-destructive">
+                            This cannot be undone
+                        </p>
+                        <p className="mt-0.5 text-xs text-muted-foreground">
+                            Your companies, invoices, quotations, and clients go
+                            with it. Please proceed with caution.
+                        </p>
+                    </div>
                 </div>
 
                 <Dialog>
-                    <DialogTrigger asChild>
-                        <Button
-                            variant="destructive"
-                            data-test="delete-user-button"
-                        >
-                            Delete account
-                        </Button>
+                    <DialogTrigger
+                        className={pillButtonClass(
+                            'ghost',
+                            'sm',
+                            'w-fit text-destructive hover:bg-destructive/10',
+                        )}
+                        data-test="delete-user-button"
+                    >
+                        Delete account
                     </DialogTrigger>
-                    <DialogContent>
+                    <DialogContent className="rounded-3xl">
                         <DialogTitle>
                             Are you sure you want to delete your account?
                         </DialogTitle>
@@ -60,54 +78,48 @@ export default function DeleteUser() {
                             }}
                             onError={() => passwordInput.current?.focus()}
                             resetOnSuccess
-                            className="space-y-6"
+                            className="flex flex-col gap-4"
                         >
                             {({ resetAndClearErrors, processing, errors }) => (
                                 <>
-                                    <div className="grid gap-2">
-                                        <Label
-                                            htmlFor="password"
-                                            className="sr-only"
-                                        >
-                                            Password
-                                        </Label>
-
-                                        <Input
+                                    <FormField
+                                        label="Password"
+                                        htmlFor="password"
+                                    >
+                                        <input
                                             id="password"
                                             type="password"
                                             name="password"
                                             ref={passwordInput}
                                             placeholder="Password"
                                             autoComplete="current-password"
+                                            className={fieldInputClass}
                                         />
 
                                         <InputError message={errors.password} />
-                                    </div>
+                                    </FormField>
 
                                     <DialogFooter className="gap-2">
-                                        <DialogClose asChild>
-                                            <Button
-                                                variant="secondary"
-                                                onClick={() =>
-                                                    resetAndClearErrors()
-                                                }
-                                            >
-                                                Cancel
-                                            </Button>
+                                        <DialogClose
+                                            className={pillButtonClass('ghost')}
+                                            onClick={() =>
+                                                resetAndClearErrors()
+                                            }
+                                        >
+                                            Cancel
                                         </DialogClose>
 
-                                        <Button
-                                            variant="destructive"
+                                        <PillButton
+                                            type="submit"
                                             disabled={processing}
-                                            asChild
+                                            data-test="confirm-delete-user-button"
+                                            className="bg-destructive text-white shadow-none hover:bg-destructive/90"
                                         >
-                                            <button
-                                                type="submit"
-                                                data-test="confirm-delete-user-button"
-                                            >
-                                                Delete account
-                                            </button>
-                                        </Button>
+                                            {processing && (
+                                                <NiloSpinner size={16} />
+                                            )}
+                                            Delete account
+                                        </PillButton>
                                     </DialogFooter>
                                 </>
                             )}
@@ -115,6 +127,6 @@ export default function DeleteUser() {
                     </DialogContent>
                 </Dialog>
             </div>
-        </div>
+        </Panel>
     );
 }

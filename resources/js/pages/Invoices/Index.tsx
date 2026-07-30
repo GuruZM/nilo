@@ -1,47 +1,46 @@
-import AppLayout from '@/layouts/app-layout';
-import { Head, Link } from '@inertiajs/react';
-import { AnimatePresence, motion } from 'framer-motion';
 import {
-    AlertTriangle,
-    ArrowUpRight,
+    CreateDocumentButton,
+    PrerequisiteGate,
+    permissivePrerequisites,
+    type DocumentPrerequisites,
+} from '@/components/document-prerequisites';
+import AppLayout from '@/layouts/app-layout';
+import { Head, Link, usePage } from '@inertiajs/react';
+import { motion } from 'framer-motion';
+import {
     BadgeDollarSign,
-    Calendar,
     CheckCircle2,
-    Clock,
     FileText,
-    Filter,
     Plus,
-    RefreshCw,
-    Search,
-    XCircle,
+    SearchX,
 } from 'lucide-react';
 import * as React from 'react';
-import { toast } from 'sonner';
-import type { PageProps } from '../../types';
 
-// shadcn
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuLabel,
-    DropdownMenuSeparator,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Input } from '@/components/ui/input';
-import { Separator } from '@/components/ui/separator';
+    Chip,
+    ClientPagination,
+    InitialsAvatar,
+    Panel,
+    PillButton,
+    SearchField,
+    SortableTh,
+    StatTile,
+    StatusPill,
+    pillButtonClass,
+} from '@/components/dashboard/primitives';
+import { Money } from '@/components/money';
+
+import { Badge } from '@/components/ui/badge';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types/index.d';
+import type { PageProps } from '../../types';
 
 type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'void' | string;
 
 interface Invoice {
     id: number;
     number: string | null;
-    total: number; // use `total` on backend; keep `amount` if you want, but total is better
+    total: number;
     status: InvoiceStatus;
     created_at: string;
     issue_date?: string | null;
@@ -53,8 +52,8 @@ interface Invoice {
 interface InvoicesIndexProps extends PageProps {
     invoices: Invoice[];
     hasActiveCompany?: boolean;
+    prerequisites?: DocumentPrerequisites;
 
-    // optional (if you already share currencies in middleware)
     currencies?: {
         current?: { code: string; symbol?: string | null; precision?: number };
     };
@@ -64,544 +63,488 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Invoices', href: '/invoices' },
 ];
 
-function statusBadgeVariant(status: InvoiceStatus) {
-    const s = (status || '').toLowerCase();
-    if (s === 'paid') return 'secondary';
-    if (s === 'overdue') return 'destructive';
-    if (s === 'sent') return 'outline';
-    if (s === 'void') return 'destructive';
-    return 'outline';
-}
+const STATUS_FILTERS = [
+    'all',
+    'draft',
+    'sent',
+    'paid',
+    'overdue',
+    'void',
+] as const;
 
-function statusIcon(status: InvoiceStatus) {
-    const s = (status || '').toLowerCase();
-    if (s === 'paid') return CheckCircle2;
-    if (s === 'overdue') return AlertTriangle;
-    if (s === 'void') return XCircle;
-    if (s === 'sent') return Clock;
-    return FileText;
-}
+type SortKey = 'created' | 'amount';
+type SortDirection = 'asc' | 'desc';
 
-function formatMoney(
-    value: number,
-    opts?: { code?: string | null; symbol?: string | null; precision?: number },
-) {
-    const precision = opts?.precision ?? 2;
-    const symbol = opts?.symbol ?? null;
-    const code = opts?.code ?? null;
+/** Invoices shown per page; the full list is filtered and sorted client-side. */
+const ROWS_PER_PAGE = 5;
 
-    const n = Number.isFinite(value) ? value : 0;
+const fmtDate = (iso: string): string => {
+    try {
+        return new Date(iso).toLocaleDateString();
+    } catch {
+        return iso;
+    }
+};
 
-    // Prefer symbol, fall back to code, then nothing
-    const prefix = symbol ? `${symbol} ` : code ? `${code} ` : '';
+/** The active company from the shared Inertia `companies` prop. */
+function useActiveCompanyName(): string | null {
+    const page = usePage<{
+        companies?: { current?: { name?: string } | null } | null;
+    }>();
 
-    return `${prefix}${n.toFixed(precision)}`;
+    return page.props.companies?.current?.name ?? null;
 }
 
 export default function InvoicesIndex({
     invoices,
     hasActiveCompany = true,
+    prerequisites = permissivePrerequisites,
     currencies,
 }: InvoicesIndexProps) {
-    const [query, setQuery] = React.useState('');
-    const [status, setStatus] = React.useState<'all' | InvoiceStatus>('all');
-    const [sort, setSort] = React.useState<
-        'newest' | 'oldest' | 'amount_desc' | 'amount_asc'
-    >('newest');
-
+    const canCreate = prerequisites.can_create;
+    const activeCompanyName = useActiveCompanyName();
     const activeCurrency = currencies?.current;
 
-    const filtered = React.useMemo(() => {
-        const q = query.trim().toLowerCase();
+    const [query, setQuery] = React.useState('');
+    const [status, setStatus] = React.useState<'all' | InvoiceStatus>('all');
+    const [sortKey, setSortKey] = React.useState<SortKey>('created');
+    const [sortDirection, setSortDirection] =
+        React.useState<SortDirection>('desc');
+    const [page, setPage] = React.useState(1);
+
+    /** A new search or status narrows the list, so start reading from the top. */
+    React.useEffect(() => {
+        setPage(1);
+    }, [query, status]);
+
+    /** Clicking the active column flips it; a new column starts descending. */
+    const toggleSort = (key: SortKey) => {
+        setPage(1);
+
+        if (key === sortKey) {
+            setSortDirection((d) => (d === 'asc' ? 'desc' : 'asc'));
+            return;
+        }
+
+        setSortKey(key);
+        setSortDirection('desc');
+    };
+
+    const visibleInvoices = React.useMemo(() => {
+        const needle = query.trim().toLowerCase();
 
         let rows = invoices;
 
         if (status !== 'all') {
             rows = rows.filter(
-                (i) =>
-                    (i.status || '').toLowerCase() ===
+                (invoice) =>
+                    (invoice.status || '').toLowerCase() ===
                     String(status).toLowerCase(),
             );
         }
 
-        if (q) {
-            rows = rows.filter((i) => {
-                const hay =
-                    `${i.number ?? ''} ${i.client_name ?? ''} ${i.status ?? ''}`.toLowerCase();
-                return hay.includes(q);
-            });
+        if (needle) {
+            rows = rows.filter((invoice) =>
+                [invoice.number, invoice.client_name, invoice.status].some(
+                    (field) => (field ?? '').toLowerCase().includes(needle),
+                ),
+            );
         }
 
-        rows = [...rows].sort((a, b) => {
-            const aDate = new Date(a.created_at).getTime();
-            const bDate = new Date(b.created_at).getTime();
+        return [...rows].sort((a, b) => {
+            const delta =
+                sortKey === 'amount'
+                    ? Number(a.total ?? 0) - Number(b.total ?? 0)
+                    : new Date(a.created_at).getTime() -
+                      new Date(b.created_at).getTime();
 
-            if (sort === 'newest') return bDate - aDate;
-            if (sort === 'oldest') return aDate - bDate;
-
-            const aAmt = Number(a.total ?? 0);
-            const bAmt = Number(b.total ?? 0);
-
-            if (sort === 'amount_desc') return bAmt - aAmt;
-            if (sort === 'amount_asc') return aAmt - bAmt;
-
-            return 0;
+            return sortDirection === 'asc' ? delta : -delta;
         });
+    }, [invoices, query, status, sortKey, sortDirection]);
 
-        return rows;
-    }, [invoices, query, status, sort]);
+    const pageCount = Math.max(
+        1,
+        Math.ceil(visibleInvoices.length / ROWS_PER_PAGE),
+    );
 
-    const stats = React.useMemo(() => {
-        const all = invoices.length;
-        const draft = invoices.filter(
-            (i) => (i.status || '').toLowerCase() === 'draft',
-        ).length;
-        const sent = invoices.filter(
-            (i) => (i.status || '').toLowerCase() === 'sent',
-        ).length;
-        const paid = invoices.filter(
-            (i) => (i.status || '').toLowerCase() === 'paid',
-        ).length;
-        const overdue = invoices.filter(
-            (i) => (i.status || '').toLowerCase() === 'overdue',
-        ).length;
+    /** Filtering or sorting can shrink the list past the current page. */
+    const currentPage = Math.min(page, pageCount);
 
-        const totalValue = invoices.reduce(
-            (sum, i) => sum + Number(i.total ?? 0),
-            0,
-        );
+    const pagedInvoices = React.useMemo(
+        () =>
+            visibleInvoices.slice(
+                (currentPage - 1) * ROWS_PER_PAGE,
+                currentPage * ROWS_PER_PAGE,
+            ),
+        [visibleInvoices, currentPage],
+    );
 
-        return { all, draft, sent, paid, overdue, totalValue };
+    const totals = React.useMemo(() => {
+        const count = (value: string) =>
+            invoices.filter((i) => (i.status || '').toLowerCase() === value)
+                .length;
+
+        return {
+            draft: count('draft'),
+            sent: count('sent'),
+            paid: count('paid'),
+            overdue: count('overdue'),
+            value: invoices.reduce((sum, i) => sum + Number(i.total ?? 0), 0),
+        };
     }, [invoices]);
 
-    const resetFilters = () => {
+    const hasInvoices = invoices.length > 0;
+    const hasResults = visibleInvoices.length > 0;
+    const isFiltered = status !== 'all' || Boolean(query.trim());
+
+    const firstRowOnPage = (currentPage - 1) * ROWS_PER_PAGE + 1;
+    const rangeLabel = hasResults
+        ? `${firstRowOnPage}–${firstRowOnPage + pagedInvoices.length - 1}`
+        : '0';
+
+    const clearFilters = () => {
         setQuery('');
         setStatus('all');
-        setSort('newest');
-        toast.success('Filters cleared.');
     };
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Invoices" />
 
-            <motion.div
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3, ease: 'easeOut' }}
-                className="mx-auto w-full px-4 py-10 sm:px-6"
-            >
+            <div className="mx-auto w-full py-3">
                 {/* Header */}
-                <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-                    <div className="flex items-start gap-3">
-                        <div className="grid h-11 w-11 place-items-center rounded-2xl bg-muted">
-                            <FileText className="h-6 w-6 text-foreground/80" />
-                        </div>
-                        <div>
-                            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                                Invoices
-                            </h1>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                                Track drafts, sent invoices, and payments — all
-                                scoped to your active company.
-                            </p>
-                        </div>
+                <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="min-w-0">
+                        {hasActiveCompany && activeCompanyName ? (
+                            <div className="flex items-center gap-2">
+                                <Badge variant="secondary" className="gap-1">
+                                    <CheckCircle2 className="h-3.5 w-3.5" />
+                                    Active:{' '}
+                                    <span className="font-medium">
+                                        {activeCompanyName}
+                                    </span>
+                                </Badge>
+                            </div>
+                        ) : null}
                     </div>
 
-                    <Button
-                        asChild
-                        disabled={!hasActiveCompany}
-                        className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                    >
-                        <Link href="/invoices/create">
-                            <Plus className="h-4 w-4" />
-                            Add invoice
+                    <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                            href="/dashboard"
+                            className={pillButtonClass('ghost', 'sm')}
+                        >
+                            Back to dashboard
                         </Link>
-                    </Button>
+                        <CreateDocumentButton
+                            href="/invoices/create"
+                            label="Add invoice"
+                            canCreate={canCreate}
+                            icon={<Plus className="h-4 w-4" />}
+                        />
+                    </div>
                 </div>
 
-                {!hasActiveCompany && (
-                    <Card className="mb-6 rounded-2xl border-dashed bg-muted/20 p-5 shadow-sm">
-                        <div className="flex flex-col gap-2">
-                            <div className="text-sm font-semibold">
-                                Add or select a company to use invoices
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                                The invoices module is available, but you need
-                                an active company before invoices can be listed
-                                or created.
-                            </p>
-                            <div>
-                                <Button asChild className="rounded-xl">
-                                    <Link href="/companies">Manage companies</Link>
-                                </Button>
-                            </div>
-                        </div>
-                    </Card>
-                )}
+                {!canCreate ? (
+                    <div className="mb-6">
+                        <PrerequisiteGate
+                            documentLabel="invoice"
+                            blockers={prerequisites.blockers}
+                        />
+                    </div>
+                ) : null}
 
-                {/* Quick stats */}
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                    <StatCard
-                        title="Total invoices"
-                        value={String(stats.all)}
+                {/* Summary */}
+                <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+                    <StatTile
+                        title={
+                            activeCompanyName
+                                ? `Invoices • ${activeCompanyName}`
+                                : 'Invoices'
+                        }
+                        value={`${invoices.length}`}
                         icon={FileText}
+                        sub={
+                            hasInvoices
+                                ? `${totals.draft} draft • ${totals.sent} sent`
+                                : undefined
+                        }
                     />
-                    <StatCard
-                        title="Drafts"
-                        value={String(stats.draft)}
-                        icon={Clock}
-                    />
-                    <StatCard
-                        title="Sent"
-                        value={String(stats.sent)}
-                        icon={ArrowUpRight}
-                    />
-                    <StatCard
+                    <StatTile
                         title="Paid"
-                        value={String(stats.paid)}
+                        value={`${totals.paid}`}
                         icon={CheckCircle2}
+                        sub={
+                            totals.overdue
+                                ? `${totals.overdue} overdue`
+                                : hasInvoices
+                                  ? 'Nothing overdue'
+                                  : undefined
+                        }
                     />
-                    <StatCard
+                    <StatTile
                         title="Total value"
-                        value={formatMoney(stats.totalValue, activeCurrency)}
+                        value={
+                            <Money
+                                amount={totals.value}
+                                currency={activeCurrency}
+                            />
+                        }
                         icon={BadgeDollarSign}
+                        sub={
+                            hasInvoices
+                                ? `Across ${invoices.length} invoice${invoices.length === 1 ? '' : 's'}`
+                                : undefined
+                        }
                     />
                 </div>
 
-                <Separator className="my-6" />
-
-                {/* Filters */}
-                <Card className="rounded-2xl border bg-background p-4 shadow-sm">
-                    <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                        <div className="relative w-full lg:max-w-md">
-                            <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                                value={query}
-                                onChange={(e) => setQuery(e.target.value)}
-                                placeholder="Search by number, client, status..."
-                                className="rounded-xl pl-9"
-                            />
+                {/* Invoice list */}
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-start gap-2.5">
+                        <span className="mt-0.5 grid h-8 w-8 shrink-0 place-items-center rounded-xl bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-300">
+                            <FileText className="h-4 w-4" />
+                        </span>
+                        <div>
+                            <div className="text-sm font-semibold">
+                                Your invoices
+                            </div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                                {hasInvoices && isFiltered
+                                    ? `${rangeLabel} of ${visibleInvoices.length} matching • ${invoices.length} total`
+                                    : `${rangeLabel} of ${invoices.length} total`}
+                            </div>
                         </div>
+                    </div>
 
-                        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                            {/* Status */}
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        className="gap-2 rounded-xl"
-                                    >
-                                        <Filter className="h-4 w-4" />
-                                        Status:{' '}
-                                        {status === 'all' ? 'All' : status}
-                                        {/* <ChevronDown className="h-4 w-4 opacity-70" /> */}
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                    align="end"
-                                    className="w-56 rounded-xl"
-                                >
-                                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                        Filter by status
-                                    </DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    {[
-                                        'all',
-                                        'draft',
-                                        'sent',
-                                        'paid',
-                                        'overdue',
-                                        'void',
-                                    ].map((s) => (
-                                        <DropdownMenuItem
-                                            key={s}
-                                            onClick={() => setStatus(s as any)}
-                                            className="rounded-lg"
-                                        >
-                                            {s === 'all' ? 'All' : s}
-                                        </DropdownMenuItem>
-                                    ))}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                    {hasInvoices ? (
+                        <SearchField
+                            value={query}
+                            onChange={setQuery}
+                            placeholder="Search number, client, status…"
+                            className="w-full sm:w-72"
+                        />
+                    ) : null}
+                </div>
 
-                            {/* Sort */}
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button
-                                        variant="outline"
-                                        className="gap-2 rounded-xl"
-                                    >
-                                        <Calendar className="h-4 w-4" />
-                                        Sort
-                                        {/* <ChevronDown className="h-4 w-4 opacity-70" />  */}
-                                    </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent
-                                    align="end"
-                                    className="w-56 rounded-xl"
-                                >
-                                    <DropdownMenuLabel className="text-xs text-muted-foreground">
-                                        Sort invoices
-                                    </DropdownMenuLabel>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                        onClick={() => setSort('newest')}
-                                        className="rounded-lg"
-                                    >
-                                        Newest first
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        onClick={() => setSort('oldest')}
-                                        className="rounded-lg"
-                                    >
-                                        Oldest first
-                                    </DropdownMenuItem>
-                                    <DropdownMenuSeparator />
-                                    <DropdownMenuItem
-                                        onClick={() => setSort('amount_desc')}
-                                        className="rounded-lg"
-                                    >
-                                        Amount (high → low)
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                        onClick={() => setSort('amount_asc')}
-                                        className="rounded-lg"
-                                    >
-                                        Amount (low → high)
-                                    </DropdownMenuItem>
-                                </DropdownMenuContent>
-                            </DropdownMenu>
-
-                            <Button
-                                variant="ghost"
-                                onClick={resetFilters}
-                                className="gap-2 rounded-xl"
+                {hasInvoices ? (
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                        {STATUS_FILTERS.map((value) => (
+                            <Chip
+                                key={value}
+                                active={status === value}
+                                onClick={() => setStatus(value)}
                             >
-                                <RefreshCw className="h-4 w-4" />
-                                Reset
-                            </Button>
-                        </div>
+                                {value === 'all' ? 'All' : value}
+                            </Chip>
+                        ))}
                     </div>
-                </Card>
+                ) : null}
 
-                {/* Table */}
-                <Card className="mt-4 overflow-hidden rounded-2xl border bg-background shadow-sm">
-                    <div className="w-full overflow-x-auto">
-                        <table className="min-w-full">
-                            <thead className="bg-muted/40">
-                                <tr className="text-left text-xs text-muted-foreground">
-                                    <th className="px-6 py-3 font-semibold">
-                                        Invoice
-                                    </th>
-                                    <th className="px-6 py-3 font-semibold">
-                                        Amount
-                                    </th>
-                                    <th className="px-6 py-3 font-semibold">
-                                        Status
-                                    </th>
-                                    <th className="px-6 py-3 font-semibold">
-                                        Created
-                                    </th>
-                                    <th className="px-6 py-3 text-right font-semibold">
-                                        Action
-                                    </th>
-                                </tr>
-                            </thead>
+                <Panel>
+                    {!hasInvoices ? (
+                        <EmptyInvoices canCreate={canCreate} />
+                    ) : !hasResults ? (
+                        <NoSearchResults onClear={clearFilters} />
+                    ) : (
+                        <InvoiceTable
+                            invoices={pagedInvoices}
+                            activeCurrency={activeCurrency}
+                            sortKey={sortKey}
+                            sortDirection={sortDirection}
+                            onSort={toggleSort}
+                        />
+                    )}
+                </Panel>
 
-                            <tbody className="divide-y">
-                                <AnimatePresence mode="popLayout">
-                                    {filtered.length === 0 ? (
-                                        <tr>
-                                            <td
-                                                colSpan={5}
-                                                className="px-6 py-14 text-center"
-                                            >
-                                                <div className="mx-auto max-w-sm">
-                                                    <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-muted">
-                                                        <FileText className="h-6 w-6 text-foreground/70" />
-                                                    </div>
-                                                    <div className="text-sm font-medium">
-                                                        No invoices found
-                                                    </div>
-                                                    <div className="mt-1 text-sm text-muted-foreground">
-                                                        Try changing your
-                                                        filters or create your
-                                                        first invoice.
-                                                    </div>
-                                                    <div className="mt-4">
-                                                        <Button
-                                                            asChild
-                                                            className="rounded-xl"
-                                                        >
-                                                            <Link href="/invoices/create">
-                                                                <Plus className="mr-2 h-4 w-4" />
-                                                                Add invoice
-                                                            </Link>
-                                                        </Button>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ) : (
-                                        filtered.map((invoice, i) => {
-                                            const StatusIcon = statusIcon(
-                                                invoice.status,
-                                            );
-                                            const money = formatMoney(
-                                                Number(invoice.total ?? 0),
-                                                {
-                                                    code:
-                                                        invoice.currency_code ??
-                                                        activeCurrency?.code ??
-                                                        null,
-                                                    symbol:
-                                                        activeCurrency?.symbol ??
-                                                        null,
-                                                    precision:
-                                                        activeCurrency?.precision ??
-                                                        2,
-                                                },
-                                            );
-
-                                            return (
-                                                <motion.tr
-                                                    key={invoice.id}
-                                                    initial={{
-                                                        opacity: 0,
-                                                        y: 8,
-                                                    }}
-                                                    animate={{
-                                                        opacity: 1,
-                                                        y: 0,
-                                                    }}
-                                                    exit={{ opacity: 0, y: 8 }}
-                                                    transition={{
-                                                        duration: 0.18,
-                                                        delay: Math.min(
-                                                            i * 0.02,
-                                                            0.14,
-                                                        ),
-                                                    }}
-                                                    className="group"
-                                                >
-                                                    <td className="px-6 py-4">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="grid h-9 w-9 place-items-center rounded-xl bg-muted/60">
-                                                                <StatusIcon className="h-4 w-4 opacity-80" />
-                                                            </div>
-                                                            <div className="min-w-0">
-                                                                <div className="truncate text-sm font-semibold">
-                                                                    {invoice.number ??
-                                                                        `Invoice #${invoice.id}`}
-                                                                </div>
-                                                                <div className="truncate text-xs text-muted-foreground">
-                                                                    {invoice.client_name ??
-                                                                        'Client'}{' '}
-                                                                    •{' '}
-                                                                    {invoice.currency_code ??
-                                                                        activeCurrency?.code ??
-                                                                        '—'}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    </td>
-
-                                                    <td className="px-6 py-4">
-                                                        <div className="text-sm font-semibold">
-                                                            {money}
-                                                        </div>
-                                                    </td>
-
-                                                    <td className="px-6 py-4">
-                                                        <Badge
-                                                            variant={
-                                                                statusBadgeVariant(
-                                                                    invoice.status,
-                                                                ) as any
-                                                            }
-                                                            className={cn(
-                                                                'rounded-xl capitalize',
-                                                                invoice.status ===
-                                                                    'overdue' &&
-                                                                    'gap-1',
-                                                            )}
-                                                        >
-                                                            {invoice.status}
-                                                            {String(
-                                                                invoice.status,
-                                                            ).toLowerCase() ===
-                                                                'overdue' && (
-                                                                <AlertTriangle className="ml-1 h-3.5 w-3.5" />
-                                                            )}
-                                                        </Badge>
-                                                    </td>
-
-                                                    <td className="px-6 py-4 text-sm text-muted-foreground">
-                                                        {new Date(
-                                                            invoice.created_at,
-                                                        ).toLocaleDateString()}
-                                                    </td>
-
-                                                    <td className="px-6 py-4 text-right">
-                                                        <Button
-                                                            variant="outline"
-                                                            size="sm"
-                                                            className="rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                                                            asChild
-                                                        >
-                                                            <Link
-                                                                href={`/invoices/${invoice.id}`}
-                                                            >
-                                                                View
-                                                                <ArrowUpRight className="ml-2 h-4 w-4 opacity-80" />
-                                                            </Link>
-                                                        </Button>
-                                                    </td>
-                                                </motion.tr>
-                                            );
-                                        })
-                                    )}
-                                </AnimatePresence>
-                            </tbody>
-                        </table>
-                    </div>
-                </Card>
-            </motion.div>
+                {hasResults ? (
+                    <ClientPagination
+                        page={currentPage}
+                        pageCount={pageCount}
+                        onPageChange={setPage}
+                        className="mt-4"
+                    />
+                ) : null}
+            </div>
         </AppLayout>
     );
 }
 
-function StatCard({
-    title,
-    value,
-    icon: Icon,
+/* --------------------------- Invoice table --------------------------- */
+
+/** Rows read as tinted tiles rather than ruled lines, matching the panels. */
+const cellClass = cn(
+    'bg-muted/40 px-3 py-3 align-middle transition dark:bg-white/5',
+    'group-hover:bg-brand-50/70 dark:group-hover:bg-brand-500/10',
+);
+
+function InvoiceTable({
+    invoices,
+    activeCurrency,
+    sortKey,
+    sortDirection,
+    onSort,
 }: {
-    title: string;
-    value: string;
-    icon: React.ElementType;
+    invoices: Invoice[];
+    activeCurrency?: { code: string; symbol?: string | null };
+    sortKey: SortKey;
+    sortDirection: SortDirection;
+    onSort: (key: SortKey) => void;
 }) {
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 10 }}
+        <div className="-mx-1 overflow-x-auto px-1">
+            <table className="w-full min-w-[46rem] border-separate border-spacing-y-1.5 text-sm">
+                <thead>
+                    <tr className="text-left text-xs text-muted-foreground">
+                        <th className="px-3 pb-1 font-medium">Invoice</th>
+                        <SortableTh
+                            label="Amount"
+                            active={sortKey === 'amount'}
+                            direction={sortDirection}
+                            onClick={() => onSort('amount')}
+                        />
+                        <th className="px-3 pb-1 font-medium">Status</th>
+                        <SortableTh
+                            label="Created"
+                            active={sortKey === 'created'}
+                            direction={sortDirection}
+                            onClick={() => onSort('created')}
+                        />
+                        <th className="px-3 pb-1 text-right font-medium">
+                            Actions
+                        </th>
+                    </tr>
+                </thead>
+
+                <tbody>
+                    {invoices.map((invoice, index) => (
+                        <InvoiceRow
+                            key={invoice.id}
+                            invoice={invoice}
+                            index={index}
+                            activeCurrency={activeCurrency}
+                        />
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+function InvoiceRow({
+    invoice,
+    index,
+    activeCurrency,
+}: {
+    invoice: Invoice;
+    index: number;
+    activeCurrency?: { code: string; symbol?: string | null };
+}) {
+    const label = invoice.number ?? `Invoice #${invoice.id}`;
+    const client = invoice.client_name ?? 'No client';
+
+    return (
+        <motion.tr
+            initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.22, ease: 'easeOut' }}
+            transition={{
+                duration: 0.22,
+                delay: Math.min(0.03 * index, 0.18),
+            }}
+            className="group"
         >
-            <Card className="rounded-2xl border bg-background p-4 shadow-sm">
+            <td className={cn(cellClass, 'rounded-l-2xl')}>
                 <div className="flex items-center gap-3">
-                    <div className="grid h-10 w-10 place-items-center rounded-2xl bg-muted">
-                        <Icon className="h-5 w-5 text-foreground/80" />
-                    </div>
+                    <InitialsAvatar name={client} />
+
                     <div className="min-w-0">
-                        <div className="text-xs text-muted-foreground">
-                            {title}
-                        </div>
-                        <div className="truncate text-lg font-semibold">
-                            {value}
+                        <div className="truncate font-semibold">{label}</div>
+                        <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                            {client} •{' '}
+                            {invoice.currency_code ??
+                                activeCurrency?.code ??
+                                '—'}
                         </div>
                     </div>
                 </div>
-            </Card>
-        </motion.div>
+            </td>
+
+            <td className={cellClass}>
+                <span className="tabular-nums">
+                    <Money
+                        amount={Number(invoice.total ?? 0)}
+                        code={invoice.currency_code}
+                        currency={activeCurrency}
+                    />
+                </span>
+            </td>
+
+            <td className={cellClass}>
+                <StatusPill status={invoice.status} />
+            </td>
+
+            <td className={cn(cellClass, 'text-muted-foreground')}>
+                {fmtDate(invoice.created_at)}
+            </td>
+
+            <td className={cn(cellClass, 'rounded-r-2xl text-right')}>
+                <Link
+                    href={`/invoices/${invoice.id}`}
+                    className={pillButtonClass('soft', 'sm')}
+                >
+                    View
+                </Link>
+            </td>
+        </motion.tr>
+    );
+}
+
+/* --------------------------- Empty states --------------------------- */
+
+function EmptyInvoices({ canCreate }: { canCreate: boolean }) {
+    return (
+        <div className="flex flex-col items-center px-4 py-10 text-center">
+            <span className="grid h-14 w-14 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-300">
+                <FileText className="h-6 w-6" />
+            </span>
+
+            <div className="mt-4 text-sm font-semibold">No invoices yet</div>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                Bill a client for work you have delivered. Your first invoice
+                takes about a minute to put together.
+            </p>
+
+            <div className="mt-5">
+                <CreateDocumentButton
+                    href="/invoices/create"
+                    label="Add invoice"
+                    canCreate={canCreate}
+                    icon={<Plus className="h-4 w-4" />}
+                />
+            </div>
+        </div>
+    );
+}
+
+function NoSearchResults({ onClear }: { onClear: () => void }) {
+    return (
+        <div className="flex flex-col items-center px-4 py-10 text-center">
+            <span className="grid h-14 w-14 place-items-center rounded-2xl bg-muted/60 text-muted-foreground dark:bg-white/5">
+                <SearchX className="h-6 w-6" />
+            </span>
+
+            <div className="mt-4 text-sm font-semibold">No matches</div>
+            <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+                No invoices match the current search and status filter.
+            </p>
+
+            <PillButton
+                variant="ghost"
+                size="sm"
+                className="mt-5"
+                onClick={onClear}
+            >
+                Clear filters
+            </PillButton>
+        </div>
     );
 }

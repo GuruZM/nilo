@@ -1,167 +1,134 @@
-import Chatbot from '@/components/chatbot/Chatbot';
-import { motion } from 'framer-motion';
-import { ArrowRight, Bot, Shield, Star, Users } from 'lucide-react';
-import React, { useEffect, useState } from 'react';
+import { login, register } from '@/routes';
+import { Link } from '@inertiajs/react';
+import {
+    motion,
+    useReducedMotion,
+    useScroll,
+    useTransform,
+} from 'framer-motion';
+import { ArrowRight } from 'lucide-react';
+import { CheckedDocument, PaperSheet } from './PaperGlyphs';
 
-const words = ['Invoices', 'Quotes', 'Payments', 'Clients', 'Your Business'];
+export default function Hero() {
+    const reducedMotion = useReducedMotion();
+    const { scrollY } = useScroll();
+    const shapeY = useTransform(scrollY, [0, 600], [0, reducedMotion ? 0 : 90]);
+    const contentY = useTransform(
+        scrollY,
+        [0, 600],
+        [0, reducedMotion ? 0 : -40],
+    );
 
-const Hero: React.FC = () => {
-    const [currentWord, setCurrentWord] = useState(0);
-    const [displayed, setDisplayed] = useState('');
-    const [deleting, setDeleting] = useState(false);
-    const [loopNum, setLoopNum] = useState(0);
-    const [typingSpeed, setTypingSpeed] = useState(120);
-
-    useEffect(() => {
-        let timer: NodeJS.Timeout;
-        const fullWord = words[currentWord];
-        if (!deleting && displayed.length < fullWord.length) {
-            timer = setTimeout(() => {
-                setDisplayed(fullWord.substring(0, displayed.length + 1));
-            }, typingSpeed);
-        } else if (deleting && displayed.length > 0) {
-            timer = setTimeout(() => {
-                setDisplayed(fullWord.substring(0, displayed.length - 1));
-            }, 60);
-        } else if (!deleting && displayed.length === fullWord.length) {
-            timer = setTimeout(() => setDeleting(true), 1200);
-        } else if (deleting && displayed.length === 0) {
-            setDeleting(false);
-            setCurrentWord((prev) => (prev + 1) % words.length);
-            setLoopNum(loopNum + 1);
-        }
-        return () => clearTimeout(timer);
-    }, [displayed, deleting, currentWord, loopNum]);
+    const container = {
+        hidden: {},
+        visible: { transition: { staggerChildren: reducedMotion ? 0 : 0.08 } },
+    };
+    const item = {
+        hidden: { opacity: 0, y: reducedMotion ? 0 : 28 },
+        visible: {
+            opacity: 1,
+            y: 0,
+            transition: { duration: 0.5, ease: 'easeOut' as const },
+        },
+    };
+    const float = (duration: number, distance: number) =>
+        reducedMotion
+            ? {}
+            : {
+                  animate: { y: [0, -distance, 0] },
+                  transition: {
+                      duration,
+                      repeat: Infinity,
+                      ease: 'easeInOut' as const,
+                  },
+              };
 
     return (
-        <section className="relative flex min-h-screen items-center justify-center overflow-hidden bg-gradient-to-br from-[#00417d1a] via-white to-[#00417d1a] transition-colors duration-300 dark:from-slate-900 dark:via-slate-800 dark:to-[#00417d4d]">
-            {/* Animated Background Elements */}
-            <div className="absolute inset-0 overflow-hidden">
+        <section className="relative overflow-hidden bg-gradient-to-br from-brand-700 via-brand-800 to-brand-950">
+            <motion.div
+                aria-hidden
+                style={{ y: shapeY }}
+                className="absolute inset-0"
+            >
                 <motion.div
-                    className="absolute -top-40 -right-40 h-80 w-80 rounded-full bg-[#00417d4d] opacity-60 mix-blend-multiply blur-2xl filter"
-                    animate={{ y: [0, 30, 0] }}
-                    transition={{ duration: 8, repeat: Infinity }}
+                    {...float(10, 24)}
+                    className="absolute -top-32 -right-24 h-[28rem] w-[28rem] rounded-full bg-gradient-to-br from-brand-400/30 to-brand-600/10 blur-3xl"
                 />
                 <motion.div
-                    className="absolute -bottom-40 -left-40 h-80 w-80 rounded-full bg-blue-400/30 opacity-60 mix-blend-multiply blur-2xl filter"
-                    animate={{ y: [0, -30, 0] }}
-                    transition={{ duration: 10, repeat: Infinity }}
+                    {...float(14, 32)}
+                    className="absolute -bottom-40 left-1/4 h-[24rem] w-[24rem] rounded-full bg-gradient-to-tr from-brand-300/20 to-transparent blur-3xl"
                 />
                 <motion.div
-                    className="absolute top-40 left-40 h-80 w-80 rounded-full bg-pink-400/30 opacity-60 mix-blend-multiply blur-2xl filter"
-                    animate={{ x: [0, 40, 0] }}
-                    transition={{ duration: 12, repeat: Infinity }}
-                />
-            </div>
+                    {...float(11, 22)}
+                    className="absolute top-[14%] right-[6%] hidden rotate-[24deg] opacity-30 lg:block"
+                >
+                    <PaperSheet className="h-24 w-20" />
+                </motion.div>
+                <motion.div
+                    {...float(14, 18)}
+                    className="absolute top-[30%] right-[22%] hidden -rotate-12 opacity-45 lg:block"
+                >
+                    <PaperSheet className="h-28 w-24" />
+                </motion.div>
+                <motion.div
+                    {...float(17, 14)}
+                    className="absolute top-[52%] right-[30%] hidden rotate-[8deg] opacity-60 lg:block"
+                >
+                    <PaperSheet className="h-24 w-20" />
+                </motion.div>
+                <motion.div
+                    {...float(13, 16)}
+                    className="absolute top-[46%] right-[8%] hidden drop-shadow-[0_20px_40px_rgba(0,18,38,0.5)] lg:block"
+                >
+                    <CheckedDocument className="h-56 w-44" />
+                </motion.div>
+            </motion.div>
 
-            <div className="relative z-10 mx-auto max-w-7xl px-6 py-20 text-center">
-                <div className="mx-auto max-w-4xl">
-                    <motion.h1
-                        className="mb-8 flex flex-col items-center text-5xl leading-tight font-bold text-slate-800 md:text-7xl dark:text-white"
-                        initial={{ opacity: 0, y: 40 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 1 }}
+            <motion.div
+                className="relative mx-auto flex min-h-svh w-full max-w-7xl flex-col justify-center px-6 pt-24 pb-16"
+                style={{ y: contentY }}
+                variants={container}
+                initial="hidden"
+                animate="visible"
+            >
+                <motion.h1
+                    variants={item}
+                    className="max-w-3xl text-5xl leading-tight font-bold text-white sm:text-6xl lg:text-7xl"
+                >
+                    The paperwork lives{' '}
+                    <span className="animate-shimmer bg-[linear-gradient(110deg,var(--color-orange-500),45%,var(--color-orange-200),55%,var(--color-orange-500))] bg-[length:200%_100%] bg-clip-text text-transparent">
+                        here.
+                    </span>
+                </motion.h1>
+
+                <motion.p
+                    variants={item}
+                    className="mt-6 max-w-xl text-lg leading-relaxed text-brand-100"
+                >
+                    Nilo is the business repository for SMEs: invoices,
+                    quotations, clients, and payments, with no system to manage.
+                    When your business needs more, you ask and we build it.
+                </motion.p>
+
+                <motion.div
+                    variants={item}
+                    className="mt-10 flex flex-wrap items-center gap-4"
+                >
+                    <Link
+                        href={register()}
+                        className="group inline-flex items-center gap-2 rounded-lg bg-white px-8 py-4 text-base font-semibold text-brand-900 shadow-lg shadow-brand-950/40 transition-all duration-300 hover:-translate-y-0.5 hover:bg-brand-50 hover:shadow-xl hover:shadow-brand-950/50 active:translate-y-0"
                     >
-                        <span className="flex items-center justify-center gap-2">
-                            Hello from{' '}
-                            <span className="text-[#00417d]">Nilo</span>
-                        </span>
-                        <span className="mt-4 block bg-gradient-to-r from-[#00417d] to-blue-600 bg-clip-text text-3xl font-extrabold text-transparent md:text-5xl">
-                            Effortless{' '}
-                            <span className="inline-block min-w-[120px] border-b-2 border-[#00417d]">
-                                {displayed}
-                            </span>
-                        </span>
-                    </motion.h1>
-                    <motion.p
-                        className="mb-12 text-xl leading-relaxed text-slate-600 md:text-2xl dark:text-slate-300"
-                        initial={{ opacity: 0, y: 40 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 1, delay: 0.3 }}
+                        Start free
+                        <ArrowRight className="h-4 w-4 transition-transform duration-300 group-hover:translate-x-1" />
+                    </Link>
+                    <Link
+                        href={login()}
+                        className="inline-flex items-center rounded-lg border border-white/40 px-8 py-4 text-base font-semibold text-white backdrop-blur-sm transition-all duration-300 hover:-translate-y-0.5 hover:border-white hover:bg-white/10 active:translate-y-0"
                     >
-                        The all-in-one platform to manage, automate, and elevate
-                        your business finances. Create, send, and track
-                        invoices, quotes, and payments with a touch of magic.
-                    </motion.p>
-                    <motion.p
-                        className="mb-4 flex items-center justify-center gap-2 text-lg font-medium text-[#00417d]"
-                        initial={{ opacity: 0, y: 20 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ duration: 1, delay: 0.1 }}
-                    >
-                        <Bot className="h-5 w-5" /> Nilo, your AI invoicing
-                        assistant
-                    </motion.p>
-                    <div className="mb-16 flex flex-col justify-center gap-4 sm:flex-row">
-                        <motion.button
-                            className="flex transform items-center justify-center space-x-2 rounded-full bg-[#00417d] px-8 py-4 text-lg font-semibold text-white transition-all duration-300 hover:-translate-y-2 hover:bg-blue-800 hover:shadow-xl dark:bg-[#00417d] dark:hover:bg-blue-900"
-                            whileHover={{ scale: 1.07 }}
-                            whileTap={{ scale: 0.97 }}
-                        >
-                            <span>Start Free Trial</span>
-                            <ArrowRight className="h-5 w-5" />
-                        </motion.button>
-                        <motion.button
-                            className="rounded-full border-2 border-slate-300 px-8 py-4 text-lg font-semibold text-slate-700 transition-all duration-300 hover:bg-slate-50 dark:border-slate-600 dark:text-slate-300 dark:hover:bg-slate-800"
-                            whileHover={{ scale: 1.07 }}
-                            whileTap={{ scale: 0.97 }}
-                        >
-                            Watch Demo
-                        </motion.button>
-                    </div>
-                    {/* Floating Cards */}
-                    <div className="relative mt-12 flex flex-wrap items-center justify-center gap-8">
-                        <motion.div
-                            className="flex flex-col items-center rounded-2xl border border-slate-100 bg-white/80 px-8 py-6 shadow-xl dark:border-slate-700 dark:bg-slate-800/80"
-                            initial={{ opacity: 0, y: 40 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 1, delay: 0.5 }}
-                            whileHover={{ y: -10, scale: 1.05 }}
-                        >
-                            <Star className="mb-2 h-6 w-6 text-yellow-500" />
-                            <span className="text-lg font-bold">
-                                4.9/5 Rating
-                            </span>
-                            <span className="text-xs text-slate-500 dark:text-slate-400">
-                                from 10,000+ users
-                            </span>
-                        </motion.div>
-                        <motion.div
-                            className="flex flex-col items-center rounded-2xl border border-slate-100 bg-white/80 px-8 py-6 shadow-xl dark:border-slate-700 dark:bg-slate-800/80"
-                            initial={{ opacity: 0, y: 40 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 1, delay: 0.7 }}
-                            whileHover={{ y: -10, scale: 1.05 }}
-                        >
-                            <Users className="mb-2 h-6 w-6 text-[#00417d]" />
-                            <span className="text-lg font-bold">
-                                10,000+ Users
-                            </span>
-                            <span className="text-xs text-slate-500 dark:text-slate-400">
-                                growing every day
-                            </span>
-                        </motion.div>
-                        <motion.div
-                            className="flex flex-col items-center rounded-2xl border border-slate-100 bg-white/80 px-8 py-6 shadow-xl dark:border-slate-700 dark:bg-slate-800/80"
-                            initial={{ opacity: 0, y: 40 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            transition={{ duration: 1, delay: 0.9 }}
-                            whileHover={{ y: -10, scale: 1.05 }}
-                        >
-                            <Shield className="mb-2 h-6 w-6 text-blue-500" />
-                            <span className="text-lg font-bold">
-                                Bank-Level Security
-                            </span>
-                            <span className="text-xs text-slate-500 dark:text-slate-400">
-                                your data is safe
-                            </span>
-                        </motion.div>
-                    </div>
-                    <Chatbot />
-                </div>
-            </div>
+                        Log in
+                    </Link>
+                </motion.div>
+            </motion.div>
         </section>
     );
-};
-
-export default Hero;
+}

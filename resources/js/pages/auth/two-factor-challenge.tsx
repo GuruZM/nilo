@@ -1,4 +1,5 @@
 import InputError from '@/components/input-error';
+import NiloSpinner from '@/components/nilo-spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -107,6 +108,7 @@ export default function TwoFactorChallenge() {
                                 className="w-full"
                                 disabled={processing}
                             >
+                                {processing && <NiloSpinner size={16} />}
                                 Continue
                             </Button>
 

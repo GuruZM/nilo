@@ -2,19 +2,26 @@
 import { Head, router, usePage } from '@inertiajs/react';
 import { motion } from 'framer-motion';
 import {
-    CheckCircle2,
     Download,
     Eye,
     FileText,
     Printer,
+    Receipt,
     RefreshCw,
 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Separator } from '@/components/ui/separator';
+import ConfettiBurst from '@/components/confetti-burst';
+import {
+    Panel,
+    PanelHeader,
+    PillButton,
+    SoftTile,
+    StatusPill,
+    TotalRow,
+} from '@/components/dashboard/primitives';
+import { Money } from '@/components/money';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types/index.d';
@@ -43,6 +50,8 @@ type Invoice = {
     subtotal: number;
     discount_total: number;
     invoice_discount?: number;
+    line_discount?: number;
+    tax_percent?: number;
     tax_total: number;
     total: number;
 
@@ -57,7 +66,13 @@ type Invoice = {
     items: InvoiceItem[];
 };
 
-export default function InvoiceShow({ invoice }: { invoice: Invoice }) {
+export default function InvoiceShow({
+    invoice,
+    justCreated = false,
+}: {
+    invoice: Invoice;
+    justCreated?: boolean;
+}) {
     const page = usePage() as any;
 
     React.useEffect(() => {
@@ -81,8 +96,9 @@ export default function InvoiceShow({ invoice }: { invoice: Invoice }) {
         },
     ];
 
-    const money = (n: number) =>
-        `${invoice.currency_code} ${Number.isFinite(n) ? n.toFixed(2) : '0.00'}`;
+    const money = (n: number): React.ReactNode => (
+        <Money amount={n} code={invoice.currency_code} />
+    );
 
     const preview = () => {
         window.open(
@@ -139,86 +155,61 @@ export default function InvoiceShow({ invoice }: { invoice: Invoice }) {
                 title={invoice.number ? `Invoice ${invoice.number}` : 'Invoice'}
             />
 
-            <motion.div
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.25, ease: 'easeOut' }}
-                className="mx-auto w-full px-4 py-10 sm:px-6"
-            >
-                <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-                    <div className="flex items-start gap-3">
-                        <div className="grid h-11 w-11 place-items-center rounded-2xl bg-muted">
-                            <FileText className="h-6 w-6 text-foreground/80" />
-                        </div>
-                        <div>
-                            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                                {invoice.number ?? `Invoice #${invoice.id}`}
-                            </h1>
-                            <div className="mt-1 text-sm text-muted-foreground">
-                                Status:{' '}
-                                <span
-                                    className={cn(
-                                        'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-semibold',
-                                        invoice.status === 'paid'
-                                            ? 'bg-emerald-500/10 text-emerald-600'
-                                            : 'bg-amber-500/10 text-amber-600',
-                                    )}
-                                >
-                                    <CheckCircle2 className="h-3.5 w-3.5" />
-                                    {invoice.status}
-                                </span>
-                            </div>
-                        </div>
+            {/* Celebrates the invoice that was just created, once. */}
+            <ConfettiBurst active={justCreated} />
+
+            <div className="mx-auto w-full py-3">
+                {/* Header */}
+                <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+                    <div className="flex min-w-0 items-center gap-2">
+                        <span className="text-sm text-muted-foreground">
+                            Status
+                        </span>
+                        <StatusPill status={invoice.status} />
                     </div>
 
-                    {/* ✅ ACTION BUTTONS */}
                     <div className="flex flex-wrap items-center gap-2">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={preview}
-                            className="gap-2 rounded-xl"
-                        >
+                        <PillButton variant="ghost" size="sm" onClick={preview}>
                             <Eye className="h-4 w-4" />
                             Preview
-                        </Button>
+                        </PillButton>
 
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={print}
-                            className="gap-2 rounded-xl"
-                        >
+                        <PillButton variant="ghost" size="sm" onClick={print}>
                             <Printer className="h-4 w-4" />
                             Print
-                        </Button>
+                        </PillButton>
 
-                        <Button
-                            type="button"
-                            variant="outline"
+                        <PillButton
+                            variant="ghost"
+                            size="sm"
                             onClick={downloadPdf}
-                            className="gap-2 rounded-xl"
                         >
                             <Download className="h-4 w-4" />
                             Download PDF
-                        </Button>
+                        </PillButton>
 
-                        <Button
-                            type="button"
+                        <PillButton
+                            variant="solid"
+                            size="sm"
                             onClick={toggleStatus}
-                            className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
                         >
                             <RefreshCw className="h-4 w-4" />
                             {invoice.status === 'paid'
                                 ? 'Mark as pending'
                                 : 'Mark as paid'}
-                        </Button>
+                        </PillButton>
                     </div>
                 </div>
 
-                <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-                    <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-8">
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+                    <Panel className="lg:col-span-8">
+                        <PanelHeader
+                            icon={FileText}
+                            title={invoice.number ?? `Invoice #${invoice.id}`}
+                            subtitle={invoice.title ?? undefined}
+                        />
+
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                             <Info
                                 label="Client"
                                 value={invoice.client?.name ?? '—'}
@@ -237,53 +228,91 @@ export default function InvoiceShow({ invoice }: { invoice: Invoice }) {
                             />
                         </div>
 
-                        <Separator className="my-6" />
+                        <div className="-mx-1 mt-5 overflow-x-auto px-1">
+                            <table className="w-full min-w-[34rem] border-separate border-spacing-y-1.5 text-sm">
+                                <thead>
+                                    <tr className="text-left text-xs text-muted-foreground">
+                                        <th className="px-3 pb-1 font-medium">
+                                            Description
+                                        </th>
+                                        <th className="px-3 pb-1 text-right font-medium">
+                                            Qty
+                                        </th>
+                                        <th className="px-3 pb-1 text-right font-medium">
+                                            Price
+                                        </th>
+                                        <th className="px-3 pb-1 text-right font-medium">
+                                            Line
+                                        </th>
+                                    </tr>
+                                </thead>
 
-                        <div className="rounded-2xl border">
-                            <div className="grid grid-cols-12 gap-2 border-b bg-muted/40 px-4 py-3 text-xs font-semibold text-muted-foreground">
-                                <div className="col-span-6">Description</div>
-                                <div className="col-span-2 text-right">Qty</div>
-                                <div className="col-span-2 text-right">
-                                    Price
-                                </div>
-                                <div className="col-span-2 text-right">
-                                    Line
-                                </div>
-                            </div>
-
-                            <div className="divide-y">
-                                {invoice.items.map((it) => (
-                                    <div
-                                        key={it.id}
-                                        className="grid grid-cols-12 gap-2 px-4 py-3 text-sm"
-                                    >
-                                        <div className="col-span-6 min-w-0">
-                                            <div className="truncate font-medium">
-                                                {it.description}
-                                            </div>
-                                            {it.unit ? (
-                                                <div className="text-xs text-muted-foreground">
-                                                    Unit: {it.unit}
+                                <tbody>
+                                    {invoice.items.map((item, index) => (
+                                        <motion.tr
+                                            key={item.id}
+                                            initial={{ opacity: 0, y: 8 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            transition={{
+                                                duration: 0.22,
+                                                delay: Math.min(
+                                                    0.03 * index,
+                                                    0.18,
+                                                ),
+                                            }}
+                                            className="group"
+                                        >
+                                            <td
+                                                className={cn(
+                                                    cellClass,
+                                                    'rounded-l-2xl',
+                                                )}
+                                            >
+                                                <div className="min-w-0">
+                                                    <div className="truncate font-medium">
+                                                        {item.description}
+                                                    </div>
+                                                    {item.unit ? (
+                                                        <div className="mt-0.5 text-xs text-muted-foreground">
+                                                            Unit: {item.unit}
+                                                        </div>
+                                                    ) : null}
                                                 </div>
-                                            ) : null}
-                                        </div>
-                                        <div className="col-span-2 text-right">
-                                            {Number(it.quantity).toFixed(2)}
-                                        </div>
-                                        <div className="col-span-2 text-right">
-                                            {money(Number(it.unit_price))}
-                                        </div>
-                                        <div className="col-span-2 text-right font-semibold">
-                                            {money(Number(it.line_total))}
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
+                                            </td>
+                                            <td
+                                                className={cn(
+                                                    cellClass,
+                                                    'text-right tabular-nums',
+                                                )}
+                                            >
+                                                {Number(item.quantity).toFixed(
+                                                    2,
+                                                )}
+                                            </td>
+                                            <td
+                                                className={cn(
+                                                    cellClass,
+                                                    'text-right tabular-nums',
+                                                )}
+                                            >
+                                                {money(Number(item.unit_price))}
+                                            </td>
+                                            <td
+                                                className={cn(
+                                                    cellClass,
+                                                    'rounded-r-2xl text-right font-semibold tabular-nums',
+                                                )}
+                                            >
+                                                {money(Number(item.line_total))}
+                                            </td>
+                                        </motion.tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
 
-                        {(invoice.notes || invoice.terms) && (
-                            <>
-                                <Separator className="my-6" />
+                        {invoice.notes || invoice.terms ? (
+                            <div className="mt-5 grid grid-cols-1 gap-2 sm:grid-cols-2">
                                 {invoice.notes ? (
                                     <Block
                                         title="Notes"
@@ -296,21 +325,20 @@ export default function InvoiceShow({ invoice }: { invoice: Invoice }) {
                                         value={invoice.terms}
                                     />
                                 ) : null}
-                            </>
-                        )}
-                    </Card>
+                            </div>
+                        ) : null}
+                    </Panel>
 
-                    <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-4">
-                        <div className="mb-3 text-sm font-semibold">Totals</div>
+                    <Panel className="lg:col-span-4">
+                        <PanelHeader icon={Receipt} title="Totals" />
 
-                        <div className="space-y-2 rounded-2xl border bg-muted/20 p-4">
-                            <TotalRow
-                                label="Subtotal"
-                                value={money(invoice.subtotal)}
-                            />
+                        {/* Prices are tax-inclusive, so tax is carved out of the total. */}
+                        <SoftTile className="space-y-2 p-4">
                             <TotalRow
                                 label="Line discount"
-                                value={money(invoice.discount_total)}
+                                value={money(
+                                    Number(invoice.line_discount ?? 0),
+                                )}
                             />
                             <TotalRow
                                 label="Invoice discount"
@@ -318,61 +346,55 @@ export default function InvoiceShow({ invoice }: { invoice: Invoice }) {
                                     Number(invoice.invoice_discount ?? 0),
                                 )}
                             />
+
+                            <div className="h-px bg-border/70 dark:bg-white/10" />
+
                             <TotalRow
-                                label="Tax"
+                                label="Subtotal (excl. tax)"
+                                value={money(invoice.subtotal)}
+                            />
+                            <TotalRow
+                                label={`Tax (${Number(invoice.tax_percent ?? 0)}%)`}
                                 value={money(invoice.tax_total)}
                             />
-                            <Separator className="my-2" />
+
+                            <div className="h-px bg-border/70 dark:bg-white/10" />
+
                             <TotalRow
-                                label="Total"
+                                label="Total (incl. tax)"
                                 value={money(invoice.total)}
                                 strong
                             />
-                        </div>
-                    </Card>
+                        </SoftTile>
+                    </Panel>
                 </div>
-            </motion.div>
+            </div>
         </AppLayout>
     );
 }
 
+/** Rows read as tinted tiles rather than ruled lines, matching the panels. */
+const cellClass = cn(
+    'bg-muted/40 px-3 py-3 align-middle transition dark:bg-white/5',
+    'group-hover:bg-brand-50/70 dark:group-hover:bg-brand-500/10',
+);
+
 function Info({ label, value }: { label: string; value: string }) {
     return (
-        <div className="rounded-2xl border p-4">
+        <SoftTile>
             <div className="text-xs text-muted-foreground">{label}</div>
-            <div className="mt-1 text-sm font-semibold">{value}</div>
-        </div>
-    );
-}
-
-function TotalRow({
-    label,
-    value,
-    strong,
-}: {
-    label: string;
-    value: string;
-    strong?: boolean;
-}) {
-    return (
-        <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">{label}</span>
-            <span
-                className={cn('text-sm', strong && 'text-base font-semibold')}
-            >
-                {value}
-            </span>
-        </div>
+            <div className="mt-1 truncate text-sm font-semibold">{value}</div>
+        </SoftTile>
     );
 }
 
 function Block({ title, value }: { title: string; value: string }) {
     return (
-        <div className="mt-4 rounded-2xl border p-4">
+        <SoftTile>
             <div className="text-xs font-semibold text-muted-foreground">
                 {title}
             </div>
             <div className="mt-2 text-sm whitespace-pre-wrap">{value}</div>
-        </div>
+        </SoftTile>
     );
 }

@@ -2,20 +2,32 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\QuotationToClient;
 use App\Models\Client;
+use App\Models\Company;
+use App\Models\Currency;
+use App\Models\InvoiceTemplate;
 use App\Models\Quotation;
+use App\Services\DocumentPrerequisites;
+use App\Services\QuotationDocumentRenderer;
+use App\Services\SubscriptionLimitService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\View;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
 
 class QuotationController extends Controller
 {
+    public function __construct(private QuotationDocumentRenderer $documents) {}
+
     private function resolveCompanyId(Request $request): ?int
     {
         $user = $request->user();
@@ -55,16 +67,113 @@ class QuotationController extends Controller
     }
 
     /**
+     * Rejects the write before any validation runs when the company, template,
+     * client or currency prerequisites are not met. The UI hides the form in this
+     * state, so reaching here means the gate was bypassed.
+     */
+    private function guardPrerequisites(?int $companyId): void
+    {
+        $prerequisites = DocumentPrerequisites::forQuotations($companyId);
+
+        if ($prerequisites->canCreate()) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'prerequisites' => $prerequisites->blockers()[0]['description'],
+        ]);
+    }
+
+    /**
+     * Scopes the template to the active company and the quotation type so a
+     * template id belonging to another company (or to invoices) cannot be submitted.
+     */
+    private function templateRule(int $companyId): Exists
+    {
+        return Rule::exists('invoice_templates', 'id')
+            ->where('company_id', $companyId)
+            ->where('type', 'quotation');
+    }
+
+    private function clientRule(int $companyId): Exists
+    {
+        return Rule::exists('clients', 'id')->where('company_id', $companyId);
+    }
+
+    /**
+     * Totals for a quotation.
+     *
+     * Prices are quoted tax-inclusive: what you type on a line is what the
+     * client would pay for it. Discounts come off that gross figure, then the
+     * tax is carved back out of what remains, so `subtotal` is the net (tax
+     * exclusive) amount and `total` is the gross (tax inclusive) one.
+     *
+     *   items_gross   Σ qty × price           5000.00
+     *   − discounts                              0.00
+     *   = total       gross, tax inclusive    5000.00
+     *     subtotal    total ÷ (1 + rate)      4310.34
+     *     tax_total   total − subtotal         689.66
+     *
+     * Tax is derived by subtraction rather than multiplication so subtotal and
+     * tax always add back to exactly the total, with no rounding drift. This
+     * mirrors InvoiceController::computeTotals — the two must not drift apart.
+     *
+     * @param  array<int, array<string, mixed>>  $items
+     * @return array{items: array<int, array<string, mixed>>, items_gross: float, subtotal: float, line_discount_total: float, quotation_discount: float, discount_total: float, tax_percent: float, tax_total: float, total: float}
+     */
+    private function computeTotals(array $items, float $quotationDiscount, float $taxPercent): array
+    {
+        $itemsGross = 0.0;
+        $lineDiscountTotal = 0.0;
+
+        foreach ($items as $i => $row) {
+            $qty = (float) $row['quantity'];
+            $price = (float) $row['unit_price'];
+            $discount = (float) ($row['discount'] ?? 0);
+
+            $lineBase = $qty * $price;
+
+            $items[$i]['discount'] = $discount;
+            $items[$i]['tax'] = 0; // tax is quoted on the document, not the line
+            $items[$i]['line_total'] = max(0, $lineBase - $discount);
+            $items[$i]['sort_order'] = $i;
+
+            $itemsGross += $lineBase;
+            $lineDiscountTotal += $discount;
+        }
+
+        $discountTotal = $lineDiscountTotal + $quotationDiscount;
+
+        $total = round(max(0, $itemsGross - $discountTotal), 2);
+        $subtotal = round($total / (1 + ($taxPercent / 100)), 2);
+        $taxTotal = round($total - $subtotal, 2);
+
+        return [
+            'items' => $items,
+            'items_gross' => $itemsGross,
+            'subtotal' => $subtotal,
+            'line_discount_total' => $lineDiscountTotal,
+            'quotation_discount' => $quotationDiscount,
+            'discount_total' => $discountTotal,
+            'tax_percent' => $taxPercent,
+            'tax_total' => $taxTotal,
+            'total' => $total,
+        ];
+    }
+
+    /**
      * Display a listing of the quotations.
      */
     public function index(Request $request): Response
     {
         $companyId = $this->resolveCompanyId($request);
+        $prerequisites = DocumentPrerequisites::forQuotations($companyId);
 
         if (! $companyId) {
             return Inertia::render('Quotations/Index', [
                 'quotations' => [],
                 'hasActiveCompany' => false,
+                'prerequisites' => $prerequisites->toArray(),
             ]);
         }
 
@@ -107,6 +216,7 @@ class QuotationController extends Controller
         return Inertia::render('Quotations/Index', [
             'quotations' => $quotations,
             'hasActiveCompany' => true,
+            'prerequisites' => $prerequisites->toArray(),
         ]);
     }
 
@@ -116,12 +226,16 @@ class QuotationController extends Controller
     public function create(Request $request): Response
     {
         $companyId = $this->resolveCompanyId($request);
+        $prerequisites = DocumentPrerequisites::forQuotations($companyId);
 
-        if (! $companyId) {
+        if (! $prerequisites->canCreate()) {
             return Inertia::render('Quotations/Create', [
                 'clients' => [],
-                'defaultCurrencyCode' => strtoupper((string) ($request->user()?->current_currency_code ?? '')),
-                'hasActiveCompany' => false,
+                'templates' => [],
+                'defaultCurrencyCode' => Company::defaultCurrencyCodeFor($companyId, $request->user()?->current_currency_code),
+                'hasActiveCompany' => $prerequisites->hasActiveCompany(),
+                'prerequisites' => $prerequisites->toArray(),
+                'limitNotice' => $request->session()->get('limit_notice'),
             ]);
         }
 
@@ -130,19 +244,36 @@ class QuotationController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'email', 'contact_person']);
 
+        $templates = InvoiceTemplate::query()
+            ->where('company_id', $companyId)
+            ->where('type', 'quotation')
+            ->orderByDesc('is_default')
+            ->orderBy('name')
+            ->get(['id', 'name', 'is_default']);
+
         return Inertia::render('Quotations/Create', [
             'clients' => $clients,
-            'defaultCurrencyCode' => strtoupper((string) ($request->user()?->current_currency_code ?? '')),
+            'templates' => $templates,
+            'defaultCurrencyCode' => Company::defaultCurrencyCodeFor($companyId, $request->user()?->current_currency_code),
             'hasActiveCompany' => true,
+            'prerequisites' => $prerequisites->toArray(),
+            'limitNotice' => $request->session()->get('limit_notice'),
         ]);
     }
 
-    public function store(Request $request): RedirectResponse
+    /**
+     * Renders the document for a quotation that has not been saved yet, so the
+     * wizard can show exactly what the PDF will contain before committing.
+     */
+    public function previewNew(Request $request)
     {
         $companyId = $this->companyId($request);
+        $this->guardPrerequisites($companyId);
+        $user = $request->user();
 
         $data = $request->validate([
-            'client_id' => ['required', 'integer', Rule::exists('clients', 'id')],
+            'client_id' => ['required', 'integer', $this->clientRule($companyId)],
+            'quotation_template_id' => ['required', 'integer', $this->templateRule($companyId)],
             'title' => ['nullable', 'string', 'max:190'],
             'reference' => ['nullable', 'string', 'max:190'],
             'issue_date' => ['required', 'date'],
@@ -152,13 +283,16 @@ class QuotationController extends Controller
             'notes' => ['nullable', 'string'],
             'terms' => ['nullable', 'string'],
             'quotation_discount' => ['nullable', 'numeric', 'min:0'],
+            'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+
             'items' => ['required', 'array', 'min:1'],
             'items.*.description' => ['required', 'string', 'max:255'],
             'items.*.unit' => ['nullable', 'string', 'max:50'],
             'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
             'items.*.unit_price' => ['required', 'numeric', 'min:0'],
             'items.*.discount' => ['nullable', 'numeric', 'min:0'],
-            'items.*.tax' => ['nullable', 'numeric', 'min:0'],
+
+            'embed' => ['nullable', 'boolean'],
         ]);
 
         $client = Client::query()
@@ -172,51 +306,113 @@ class QuotationController extends Controller
             ]);
         }
 
-        $subtotal = 0.0;
-        $discountTotal = 0.0;
-        $taxTotal = 0.0;
-        $itemsToCreate = [];
+        $template = $this->documents->resolveTemplate(
+            $companyId,
+            (int) ($data['quotation_template_id'] ?? 0)
+        );
 
-        foreach ($data['items'] as $index => $row) {
-            $quantity = (float) $row['quantity'];
-            $unitPrice = (float) $row['unit_price'];
-            $discount = (float) ($row['discount'] ?? 0);
-            $tax = (float) ($row['tax'] ?? 0);
+        $currency = Currency::query()
+            ->where('code', strtoupper((string) $data['currency_code']))
+            ->first();
 
-            $lineBase = $quantity * $unitPrice;
-            $lineTotal = max(0, $lineBase - $discount + $tax);
+        $totals = $this->computeTotals(
+            $data['items'],
+            (float) ($data['quotation_discount'] ?? 0),
+            (float) ($data['tax_percent'] ?? 0),
+        );
 
-            $itemsToCreate[] = [
-                'description' => $row['description'],
-                'unit' => $row['unit'] ?? null,
-                'quantity' => $quantity,
-                'unit_price' => $unitPrice,
-                'discount' => $discount,
-                'tax' => $tax,
-                'line_total' => $lineTotal,
-                'sort_order' => $index,
-            ];
+        $company = $user->companies()
+            ->where('companies.id', $companyId)
+            ->first();
 
-            $subtotal += $lineBase;
-            $discountTotal += $discount;
-            $taxTotal += $tax;
+        $settings = $this->documents->normalizedSettings($template);
+
+        if (! $template) {
+            $template = new InvoiceTemplate(['settings' => $settings]);
         }
 
-        $quotationDiscount = (float) ($data['quotation_discount'] ?? 0);
-        $total = max(0, $subtotal - $discountTotal - $quotationDiscount + $taxTotal);
+        $html = View::make('invoices.templates.default', [
+            'company' => $company,
+            'client' => $client,
+            'template' => $template,
+            'currency' => $currency,
+            'invoice' => [
+                'number' => 'PREVIEW',
+                'title' => $data['title'] ?? null,
+                'reference' => $data['reference'] ?? null,
+                'issue_date' => $data['issue_date'],
+                'valid_until' => $data['valid_until'] ?? null,
+                'status' => $data['status'],
+                'notes' => $data['notes'] ?? null,
+                'terms' => $data['terms'] ?? null,
+                'quotation_discount' => $totals['quotation_discount'],
+                'subtotal' => $totals['subtotal'],
+                'discount_total' => $totals['discount_total'],
+                'tax_percent' => $totals['tax_percent'],
+                'tax_total' => $totals['tax_total'],
+                'total' => $totals['total'],
+            ],
+            'items' => $totals['items'],
+            'settings' => $settings,
+            'documentType' => 'quotation',
+            'mode' => filter_var($data['embed'] ?? false, FILTER_VALIDATE_BOOLEAN) ? 'embed' : 'preview',
+        ])->render();
+
+        return response($html);
+    }
+
+    public function store(Request $request): RedirectResponse
+    {
+        $companyId = $this->companyId($request);
+        $this->guardPrerequisites($companyId);
+        $user = $request->user();
+        $limiter = new SubscriptionLimitService($user);
+
+        if (! $limiter->canCreateQuotation($companyId)) {
+            return back()->with('limit_notice', $limiter->limitNotice('quotations'));
+        }
+
+        $data = $request->validate([
+            'client_id' => ['required', 'integer', $this->clientRule($companyId)],
+            'quotation_template_id' => ['required', 'integer', $this->templateRule($companyId)],
+            'title' => ['nullable', 'string', 'max:190'],
+            'reference' => ['nullable', 'string', 'max:190'],
+            'issue_date' => ['required', 'date'],
+            'valid_until' => ['nullable', 'date', 'after_or_equal:issue_date'],
+            'currency_code' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')],
+            'status' => ['required', Rule::in(['draft', 'sent', 'accepted', 'expired'])],
+            'notes' => ['nullable', 'string'],
+            'terms' => ['nullable', 'string'],
+            'quotation_discount' => ['nullable', 'numeric', 'min:0'],
+            'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
+            'send_to_client' => ['nullable', 'boolean'],
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.description' => ['required', 'string', 'max:255'],
+            'items.*.unit' => ['nullable', 'string', 'max:50'],
+            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
+            'items.*.unit_price' => ['required', 'numeric', 'min:0'],
+            'items.*.discount' => ['nullable', 'numeric', 'min:0'],
+        ]);
+
+        $clientOk = Client::query()
+            ->where('id', (int) $data['client_id'])
+            ->where('company_id', $companyId)
+            ->exists();
+
+        if (! $clientOk) {
+            throw ValidationException::withMessages([
+                'client_id' => 'That client is not in the active company.',
+            ]);
+        }
+
+        $totals = $this->computeTotals(
+            $data['items'],
+            (float) ($data['quotation_discount'] ?? 0),
+            (float) ($data['tax_percent'] ?? 0),
+        );
 
         try {
-            DB::transaction(function () use (
-                $companyId,
-                $request,
-                $data,
-                $subtotal,
-                $discountTotal,
-                $quotationDiscount,
-                $taxTotal,
-                $total,
-                $itemsToCreate
-            ): void {
+            $quotation = DB::transaction(function () use ($companyId, $user, $data, $totals): Quotation {
                 $sequence = Quotation::query()
                     ->where('company_id', $companyId)
                     ->count() + 1;
@@ -224,23 +420,33 @@ class QuotationController extends Controller
                 $quotation = Quotation::query()->create([
                     'company_id' => $companyId,
                     'client_id' => (int) $data['client_id'],
-                    'created_by' => $request->user()?->id,
+                    'quotation_template_id' => (int) $data['quotation_template_id'],
+                    'created_by' => $user?->id,
                     'number' => 'QUO-'.str_pad((string) $sequence, 6, '0', STR_PAD_LEFT),
                     'reference' => $data['reference'] ?? null,
                     'title' => $data['title'] ?? null,
                     'issue_date' => $data['issue_date'],
                     'valid_until' => $data['valid_until'] ?? null,
                     'currency_code' => strtoupper((string) $data['currency_code']),
-                    'subtotal' => $subtotal,
-                    'discount_total' => $discountTotal + $quotationDiscount,
-                    'tax_total' => $taxTotal,
-                    'total' => $total,
+
+                    'subtotal' => $totals['subtotal'],
+
+                    /** Both are kept so the UI can show the breakdown. */
+                    'quotation_discount' => $totals['quotation_discount'],
+                    'discount_total' => $totals['discount_total'],
+
+                    'tax_percent' => $totals['tax_percent'],
+                    'tax_total' => $totals['tax_total'],
+                    'total' => $totals['total'],
+
                     'status' => $data['status'],
                     'notes' => $data['notes'] ?? null,
                     'terms' => $data['terms'] ?? null,
                 ]);
 
-                $quotation->items()->createMany($itemsToCreate);
+                $quotation->items()->createMany($totals['items']);
+
+                return $quotation;
             });
         } catch (QueryException $exception) {
             if ((string) $exception->getCode() === '42P01') {
@@ -255,7 +461,7 @@ class QuotationController extends Controller
         } catch (\Throwable $exception) {
             Log::error('Quotation creation failed', [
                 'company_id' => $companyId,
-                'user_id' => $request->user()?->id,
+                'user_id' => $user?->id,
                 'error' => $exception->getMessage(),
             ]);
 
@@ -266,8 +472,155 @@ class QuotationController extends Controller
                 ->withInput();
         }
 
+        $delivery = $this->deliverToClient($quotation, (bool) ($data['send_to_client'] ?? false));
+
         return redirect()
-            ->route('quotations.index')
-            ->with('success', 'Quotation created.');
+            ->route('quotations.show', $quotation)
+            ->with($delivery['level'], $delivery['message'])
+            ->with('quotation_created', true);
+    }
+
+    /**
+     * Queues the quotation to its client when the creator asked for it. The
+     * quotation is already saved by this point, so nothing here may throw — a
+     * delivery problem downgrades the flash message rather than losing work.
+     *
+     * @return array{level: string, message: string}
+     */
+    private function deliverToClient(Quotation $quotation, bool $requested): array
+    {
+        if (! $requested) {
+            return ['level' => 'success', 'message' => 'Quotation created.'];
+        }
+
+        $quotation->loadMissing(['client', 'company']);
+        $email = trim((string) $quotation->client?->email);
+
+        if ($email === '') {
+            return [
+                'level' => 'info',
+                'message' => 'Quotation created, but it was not emailed because the client has no email address.',
+            ];
+        }
+
+        try {
+            Mail::to($email)->send(new QuotationToClient($quotation));
+
+            /** A quotation that has gone out is no longer a draft. */
+            if ($quotation->status === 'draft') {
+                $quotation->update(['status' => 'sent']);
+            }
+
+            return [
+                'level' => 'success',
+                'message' => 'Quotation created and queued to '.$email.'.',
+            ];
+        } catch (\Throwable $exception) {
+            Log::error('Quotation email failed', [
+                'quotation_id' => $quotation->id,
+                'error' => $exception->getMessage(),
+            ]);
+
+            return [
+                'level' => 'info',
+                'message' => 'Quotation created, but the email could not be sent. You can send it again from the quotation.',
+            ];
+        }
+    }
+
+    public function show(Request $request, Quotation $quotation): Response
+    {
+        $companyId = $this->companyId($request);
+
+        if ((int) $quotation->company_id !== (int) $companyId) {
+            throw ValidationException::withMessages([
+                'quotation' => 'Quotation not found in the active company.',
+            ]);
+        }
+
+        $quotation->load([
+            'client:id,company_id,name,email,contact_person',
+            'items',
+        ]);
+
+        return Inertia::render('Quotations/show', [
+            /** Only true on the redirect straight after creating it. */
+            'justCreated' => (bool) $request->session()->get('quotation_created', false),
+
+            'quotation' => [
+                'id' => $quotation->id,
+                'number' => $quotation->number,
+                'title' => $quotation->title,
+                'reference' => $quotation->reference,
+                'status' => $quotation->status,
+                'issue_date' => $quotation->issue_date,
+                'valid_until' => $quotation->valid_until,
+                'currency_code' => $quotation->currency_code,
+
+                'subtotal' => (float) $quotation->subtotal,
+                'discount_total' => (float) $quotation->discount_total,
+                'quotation_discount' => (float) ($quotation->quotation_discount ?? 0),
+
+                /** `discount_total` carries both; split it so neither is shown twice. */
+                'line_discount' => (float) $quotation->discount_total
+                    - (float) ($quotation->quotation_discount ?? 0),
+
+                'tax_percent' => (float) ($quotation->tax_percent ?? 0),
+                'tax_total' => (float) $quotation->tax_total,
+                'total' => (float) $quotation->total,
+
+                'notes' => $quotation->notes,
+                'terms' => $quotation->terms,
+
+                'client' => $quotation->client,
+                'items' => $quotation->items,
+            ],
+        ]);
+    }
+
+    public function updateStatus(Request $request, Quotation $quotation): RedirectResponse
+    {
+        $companyId = $this->companyId($request);
+
+        if ((int) $quotation->company_id !== (int) $companyId) {
+            throw ValidationException::withMessages([
+                'quotation' => 'Quotation not found in the active company.',
+            ]);
+        }
+
+        $data = $request->validate([
+            'status' => ['required', 'string', Rule::in(['draft', 'sent', 'accepted', 'expired'])],
+        ]);
+
+        if ($quotation->status === $data['status']) {
+            return back()->with('info', 'Quotation status is already set to '.$data['status'].'.');
+        }
+
+        $quotation->update(['status' => $data['status']]);
+
+        return back()->with('success', 'Quotation status updated to '.$data['status'].'.');
+    }
+
+    public function preview(Request $request, Quotation $quotation)
+    {
+        $companyId = $this->companyId($request);
+
+        abort_unless((int) $quotation->company_id === (int) $companyId, 403);
+
+        return response($this->documents->html($quotation, 'preview'));
+    }
+
+    public function print(Request $request, Quotation $quotation)
+    {
+        $companyId = $this->companyId($request);
+
+        abort_unless((int) $quotation->company_id === (int) $companyId, 403);
+
+        return response()->view(
+            'invoices.templates.default',
+            $this->documents->viewData($quotation, 'print') + [
+                'autoPrint' => $request->boolean('download'),
+            ]
+        );
     }
 }

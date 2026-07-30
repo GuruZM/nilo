@@ -1,8 +1,8 @@
 import NewPasswordController from '@/actions/App/Http/Controllers/Auth/NewPasswordController';
 import { Form, Head } from '@inertiajs/react';
-import { LoaderCircle } from 'lucide-react';
 
 import InputError from '@/components/input-error';
+import NiloSpinner from '@/components/nilo-spinner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -29,7 +29,9 @@ export default function ResetPassword({ token, email }: ResetPasswordProps) {
                 {({ processing, errors }) => (
                     <div className="grid gap-6">
                         <div className="grid gap-2">
-                            <Label htmlFor="email">Email</Label>
+                            <Label htmlFor="email" className="font-medium">
+                                Email
+                            </Label>
                             <Input
                                 id="email"
                                 type="email"
@@ -46,7 +48,9 @@ export default function ResetPassword({ token, email }: ResetPasswordProps) {
                         </div>
 
                         <div className="grid gap-2">
-                            <Label htmlFor="password">Password</Label>
+                            <Label htmlFor="password" className="font-medium">
+                                Password
+                            </Label>
                             <Input
                                 id="password"
                                 type="password"
@@ -60,7 +64,10 @@ export default function ResetPassword({ token, email }: ResetPasswordProps) {
                         </div>
 
                         <div className="grid gap-2">
-                            <Label htmlFor="password_confirmation">
+                            <Label
+                                htmlFor="password_confirmation"
+                                className="font-medium"
+                            >
                                 Confirm password
                             </Label>
                             <Input
@@ -83,9 +90,7 @@ export default function ResetPassword({ token, email }: ResetPasswordProps) {
                             disabled={processing}
                             data-test="reset-password-button"
                         >
-                            {processing && (
-                                <LoaderCircle className="h-4 w-4 animate-spin" />
-                            )}
+                            {processing && <NiloSpinner size={16} />}
                             Reset password
                         </Button>
                     </div>

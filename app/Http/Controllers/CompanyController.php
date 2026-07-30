@@ -2,8 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\CompanyType;
 use App\Models\Company;
+use App\Models\Invoice;
+use App\Services\CurrencyRollup;
+use App\Services\SubscriptionLimitService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
@@ -11,6 +16,19 @@ use Inertia\Inertia;
 
 class CompanyController extends Controller
 {
+    /**
+     * Currency codes are stored uppercase, and the `exists` rule is
+     * case-sensitive, so normalize before validating.
+     */
+    private function normalizeCurrencyCode(Request $request): void
+    {
+        $currencyCode = $request->input('currency_code');
+
+        if (is_string($currencyCode)) {
+            $request->merge(['currency_code' => strtoupper(trim($currencyCode))]);
+        }
+    }
+
     public function index(Request $request)
     {
         $user = $request->user();
@@ -20,6 +38,8 @@ class CompanyController extends Controller
             ->select([
                 'companies.id',
                 'companies.name',
+                'companies.type',
+                'companies.currency_code',
                 'companies.email',
                 'companies.phone',
                 'companies.tpin',
@@ -29,14 +49,58 @@ class CompanyController extends Controller
             ])
             ->withCount(['clients'])
             ->withCount(['invoices as total_invoices'])
-            ->withSum(['invoices as paid_revenue' => function ($q) {
-                $q->where('status', 'paid');
-            }], 'total')
-            ->withSum(['invoices as pending_revenue' => function ($q) {
-                $q->where('status', 'pending');
-            }], 'total')
+            ->with(['documents' => fn ($query) => $query->latest()])
             ->orderBy('companies.name')
             ->get();
+
+        /**
+         * Revenue is summed per currency and converted, because a company can
+         * hold invoices issued in currencies other than the one it bills in.
+         */
+        $displayCode = $user->displayCurrencyCode();
+
+        /**
+         * Each company converts through its own rate overrides, so a row is
+         * converted by its company's rollup rather than one shared instance.
+         * The bare rollup below carries the page-level meta and gathers the
+         * gaps back together.
+         */
+        $rollup = CurrencyRollup::into($displayCode);
+
+        $rollups = $companies->mapWithKeys(fn (Company $company) => [
+            $company->id => CurrencyRollup::into($displayCode, $company->id),
+        ]);
+
+        $revenueByCompany = Invoice::query()
+            ->whereIn('company_id', $companies->pluck('id'))
+            ->whereIn('status', [Invoice::STATUS_PAID, ...Invoice::OUTSTANDING_STATUSES])
+            ->select('company_id', 'currency_code', 'status')
+            ->selectRaw('SUM(total) as amount')
+            ->groupBy('company_id', 'currency_code', 'status')
+            ->get()
+            ->reduce(function (array $carry, $row) use ($rollups, $rollup): array {
+                $converted = ($rollups[$row->company_id] ?? $rollup)
+                    ->convert((float) $row->amount, (string) $row->currency_code);
+
+                /**
+                 * Every unpaid status collapses into one outstanding bucket, so
+                 * an emailed invoice is not grouped under a key nothing reads.
+                 */
+                $bucket = $row->status === Invoice::STATUS_PAID ? 'paid' : 'pending';
+
+                $key = "{$row->company_id}.{$bucket}";
+                $carry[$key] = ($carry[$key] ?? 0.0) + $converted;
+
+                return $carry;
+            }, []);
+
+        $rollups->each(fn (CurrencyRollup $each) => $rollup->absorbUnconvertible($each));
+
+        $companies->each(function (Company $company) use ($revenueByCompany): void {
+            $company->paid_revenue = $revenueByCompany["{$company->id}.paid"] ?? 0.0;
+            $company->pending_revenue = $revenueByCompany["{$company->id}.pending"] ?? 0.0;
+            $company->append('profile_completion');
+        });
 
         // Prefer DB value; fallback to first company if null
         $activeCompanyId = $user->current_company_id ?? $companies->first()?->id;
@@ -49,6 +113,8 @@ class CompanyController extends Controller
         return Inertia::render('Companies/Index', [
             'companies' => $companies,
             'active_company_id' => $activeCompanyId,
+            'fx' => $rollup->meta(),
+            'limitNotice' => $request->session()->get('limit_notice'),
         ]);
     }
 
@@ -64,8 +130,12 @@ class CompanyController extends Controller
             ]);
         }
 
+        $this->normalizeCurrencyCode($request);
+
         $data = $request->validate([
             'name' => ['required', 'string', 'max:190'],
+            'type' => ['required', Rule::enum(CompanyType::class)],
+            'currency_code' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')->where('is_active', true)],
             'email' => ['nullable', 'email', 'max:190'],
             'phone' => ['nullable', 'string', 'max:50'],
             'tpin' => ['nullable', 'string', 'max:50'],
@@ -97,6 +167,8 @@ class CompanyController extends Controller
 
         $company->fill([
             'name' => $data['name'],
+            'type' => $data['type'],
+            'currency_code' => strtoupper($data['currency_code']),
             'email' => $data['email'] ?? null,
             'phone' => $data['phone'] ?? null,
             'tpin' => $data['tpin'] ?? null,
@@ -171,10 +243,25 @@ class CompanyController extends Controller
     public function store(Request $request)
     {
         $user = $request->user();
+        $limiter = new SubscriptionLimitService($user);
+
+        /**
+         * A refusal here is a plain redirect with no validation errors, which
+         * Inertia reports to the client as a success. It has to arrive as
+         * something the page renders, or the dialog closes claiming the company
+         * was created when nothing was written at all.
+         */
+        if (! $limiter->canCreateCompany()) {
+            return back()->with('limit_notice', $limiter->limitNotice('companies'));
+        }
+
+        $this->normalizeCurrencyCode($request);
 
         try {
             $data = $request->validate([
                 'name' => ['required', 'string', 'max:120'],
+                'type' => ['required', Rule::enum(CompanyType::class)],
+                'currency_code' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')->where('is_active', true)],
                 'email' => ['nullable', 'email', 'max:120'],
                 'phone' => ['nullable', 'string', 'max:40'],
                 'tpin' => ['nullable', 'string', 'max:30'],
@@ -207,6 +294,8 @@ class CompanyController extends Controller
                 'owner_id' => $user->id,
                 'name' => $data['name'],
                 'slug' => \App\Support\Slug::uniqueCompanySlug($data['name']),
+                'type' => $data['type'],
+                'currency_code' => strtoupper($data['currency_code']),
                 'email' => $data['email'] ?? null,
                 'phone' => $data['phone'] ?? null,
                 'tpin' => $data['tpin'] ?? null,

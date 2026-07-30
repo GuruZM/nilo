@@ -1,4 +1,4 @@
-import { Head, Link, useForm } from '@inertiajs/react';
+import { Head, Link, useForm, usePage } from '@inertiajs/react';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
     ArrowLeft,
@@ -8,7 +8,7 @@ import {
     CheckCircle2,
     ClipboardList,
     Eye,
-    FileText,
+    Mail,
     Plus,
     Receipt,
     Trash2,
@@ -16,20 +16,36 @@ import {
 import * as React from 'react';
 import { toast } from 'sonner';
 
+import EditClientDialog from '@/components/edit-client-dialog';
+import LimitNoticeDialog, {
+    type LimitNotice,
+} from '@/components/limit-notice-dialog';
+import NiloSpinner from '@/components/nilo-spinner';
+import RequiredHand from '@/components/required-hand';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types/index.d';
 
+import {
+    Chip,
+    FormField,
+    Panel,
+    PanelHeader,
+    PillButton,
+    SoftTile,
+    TotalRow,
+    fieldInputClass,
+    pillButtonClass,
+} from '@/components/dashboard/primitives';
+
 // shadcn
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
     Select,
     SelectContent,
@@ -37,7 +53,6 @@ import {
     SelectTrigger,
     SelectValue,
 } from '@/components/ui/select';
-import { Separator } from '@/components/ui/separator';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -74,7 +89,7 @@ const steps: {
     {
         key: 'details',
         title: 'Details',
-        description: 'Client, template, dates, currency, recurrence',
+        description: 'Client, template, dates and currency',
         icon: ClipboardList,
     },
     {
@@ -86,12 +101,27 @@ const steps: {
     {
         key: 'review',
         title: 'Review',
-        description: 'Discount, status, preview & create',
+        description: 'Discount, status and final check',
         icon: CheckCircle2,
     },
 ];
 
 type InvoiceStatus = 'pending' | 'paid';
+
+/** What is blocking a step, and the field to point the hand at. */
+type StepIssue = { field: string | null; message: string };
+
+/** Standard VAT rate; editable per invoice on the review step. */
+const DEFAULT_TAX_PERCENT = 16;
+
+/** A4 at 96dpi, the size the printed/downloaded invoice actually uses. */
+const A4_WIDTH_PX = 794;
+const A4_HEIGHT_PX = 1123;
+
+/** Today as `YYYY-MM-DD`, the format the date inputs expect. */
+function todayAsDateInputValue(): string {
+    return new Date().toISOString().slice(0, 10);
+}
 
 export default function InvoicesCreate({
     clients,
@@ -99,12 +129,14 @@ export default function InvoicesCreate({
     defaultCurrencyCode,
     currencies,
     hasActiveCompany = true,
+    limitNotice = null,
 }: {
     clients: Client[];
     templates: Template[];
     defaultCurrencyCode: string;
     currencies?: { all: Currency[]; current: Currency | null };
     hasActiveCompany?: boolean;
+    limitNotice?: LimitNotice | null;
 }) {
     const currencyList = currencies?.all ?? [];
     const activeCurrency = currencies?.current ?? null;
@@ -120,9 +152,77 @@ export default function InvoicesCreate({
 
     const [step, setStep] = React.useState<StepKey>('details');
 
+    /**
+     * Some refusals come back as a flash rather than validation errors — the
+     * subscription limit is one — so without this the page would bounce the
+     * user back with no explanation at all.
+     */
+    const { flash } = usePage<{
+        flash?: { error?: string | null; info?: string | null };
+    }>().props;
+
+    React.useEffect(() => {
+        if (flash?.error) toast.error(flash.error);
+        if (flash?.info) toast.message(flash.info);
+    }, [flash?.error, flash?.info]);
+
+    /** Which field the pointing hand is currently calling out, if any. */
+    const [blockedField, setBlockedField] = React.useState<string | null>(null);
+
+    React.useEffect(() => setBlockedField(null), [step]);
+
     // ✅ Preview modal
     const [previewOpen, setPreviewOpen] = React.useState(false);
+
+    /** The preview renders the full document server-side, so it is not instant. */
+    const [previewLoading, setPreviewLoading] = React.useState(false);
     const [previewHtml, setPreviewHtml] = React.useState('');
+
+    /**
+     * The document renders at true A4 (210mm x 297mm ≈ 794px x 1123px at 96dpi).
+     * The iframe keeps those dimensions and is scaled down to fit the dialog, so the
+     * preview stays a faithful reduction of the PDF instead of a reflowed narrow page.
+     */
+    const previewStageRef = React.useRef<HTMLDivElement | null>(null);
+    const previewFrameRef = React.useRef<HTMLIFrameElement | null>(null);
+    const [previewScale, setPreviewScale] = React.useState(1);
+    const [previewPageHeight, setPreviewPageHeight] =
+        React.useState(A4_HEIGHT_PX);
+
+    React.useEffect(() => {
+        const stage = previewStageRef.current;
+        if (!previewOpen || !stage) return;
+
+        const fitToStage = () => {
+            const available = stage.clientWidth;
+            if (available > 0) {
+                setPreviewScale(Math.min(1, available / A4_WIDTH_PX));
+            }
+        };
+
+        fitToStage();
+
+        const observer = new ResizeObserver(fitToStage);
+        observer.observe(stage);
+
+        return () => observer.disconnect();
+    }, [previewOpen]);
+
+    /** Grows the frame to the rendered document height, rounded to whole A4 pages. */
+    const measurePreviewHeight = () => {
+        const doc = previewFrameRef.current?.contentDocument;
+        if (!doc) return;
+
+        const rendered = Math.max(
+            doc.body?.scrollHeight ?? 0,
+            doc.documentElement?.scrollHeight ?? 0,
+            A4_HEIGHT_PX,
+        );
+
+        setPreviewPageHeight(Math.ceil(rendered / A4_HEIGHT_PX) * A4_HEIGHT_PX);
+    };
+
+    const today = todayAsDateInputValue();
 
     const form = useForm({
         client_id: '',
@@ -130,8 +230,8 @@ export default function InvoicesCreate({
             templates.find((t) => t.is_default)?.id?.toString() ?? '',
         title: '',
         reference: '',
-        issue_date: new Date().toISOString().slice(0, 10),
-        due_date: '',
+        issue_date: today,
+        due_date: today,
         currency_code: initialCurrencyCode,
         has_delivery_note: false,
 
@@ -150,6 +250,12 @@ export default function InvoicesCreate({
         // ✅ overall discount on review
         invoice_discount: 0,
 
+        // ✅ whole-invoice tax rate, applied after discounts
+        tax_percent: DEFAULT_TAX_PERCENT,
+
+        // ✅ email the finished invoice to the client
+        send_to_client: false,
+
         items: [
             {
                 description: '',
@@ -157,10 +263,27 @@ export default function InvoicesCreate({
                 quantity: 1,
                 unit_price: 0,
                 discount: 0,
-                tax: 0,
             },
         ],
     });
+
+    const selectedClient = React.useMemo(
+        () =>
+            clients.find((c) => String(c.id) === String(form.data.client_id)) ??
+            null,
+        [clients, form.data.client_id],
+    );
+
+    /** Only a client with an address on file can be emailed. */
+    const clientEmail = selectedClient?.email?.trim() || null;
+
+    /** Switching to a client with no email silently withdraws the request. */
+    React.useEffect(() => {
+        if (!clientEmail && form.data.send_to_client) {
+            form.setData('send_to_client', false);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [clientEmail, form.data.send_to_client]);
 
     const precision = React.useMemo(() => {
         const selected = currencyList.find(
@@ -171,29 +294,40 @@ export default function InvoicesCreate({
 
     const fmt = (v: number) => (Number.isFinite(v) ? v : 0).toFixed(precision);
 
+    /**
+     * Mirrors InvoiceController::computeTotals so the preview cannot drift.
+     * Prices are tax-inclusive, so the tax is carved out of the gross rather
+     * than added on top of it.
+     */
     const computed = React.useMemo(() => {
-        let subtotal = 0;
+        const round2 = (v: number) => Math.round(v * 100) / 100;
+
+        let itemsGross = 0;
         let lineDiscount = 0;
-        let tax = 0;
 
         for (const it of form.data.items) {
-            const qty = Number(it.quantity || 0);
-            const price = Number(it.unit_price || 0);
-            const disc = Number(it.discount || 0);
-            const t = Number(it.tax || 0);
-
-            subtotal += qty * price;
-            lineDiscount += disc;
-            tax += t;
+            itemsGross += Number(it.quantity || 0) * Number(it.unit_price || 0);
+            lineDiscount += Number(it.discount || 0);
         }
 
         const invoiceDiscount = Number(form.data.invoice_discount || 0);
-        const totalDiscount = lineDiscount + invoiceDiscount;
+        const taxPercent = Number(form.data.tax_percent || 0);
 
-        const total = Math.max(0, subtotal - totalDiscount + tax);
+        const total = round2(
+            Math.max(0, itemsGross - lineDiscount - invoiceDiscount),
+        );
+        const subtotal = round2(total / (1 + taxPercent / 100));
 
-        return { subtotal, lineDiscount, invoiceDiscount, tax, total };
-    }, [form.data.items, form.data.invoice_discount]);
+        return {
+            itemsGross,
+            lineDiscount,
+            invoiceDiscount,
+            subtotal,
+            taxPercent,
+            tax: round2(total - subtotal),
+            total,
+        };
+    }, [form.data.items, form.data.invoice_discount, form.data.tax_percent]);
 
     const addItem = () => {
         form.setData('items', [
@@ -204,7 +338,6 @@ export default function InvoicesCreate({
                 quantity: 1,
                 unit_price: 0,
                 discount: 0,
-                tax: 0,
             },
         ]);
     };
@@ -222,7 +355,6 @@ export default function InvoicesCreate({
                           quantity: 1,
                           unit_price: 0,
                           discount: 0,
-                          tax: 0,
                       },
                   ],
         );
@@ -234,44 +366,48 @@ export default function InvoicesCreate({
         form.setData('items', next);
     };
 
-    const validateStep = (s: StepKey) => {
+    /**
+     * The first thing blocking a step, and which field it belongs to, so the
+     * pointing hand can be shown against that field rather than only toasted.
+     * A null field means the problem is not on this form at all.
+     */
+    const stepIssue = (s: StepKey): StepIssue | null => {
         if (!hasActiveCompany) {
-            return (toast.error('Add or select a company before creating an invoice.'), false);
+            return {
+                field: null,
+                message: 'Add or select a company before creating an invoice.',
+            };
         }
 
         if (!hasClients) {
-            return (toast.error('Add a client before creating an invoice.'), false);
+            return {
+                field: null,
+                message: 'Add a client before creating an invoice.',
+            };
         }
 
         if (!hasCurrencies) {
-            return (
-                toast.error('Add an active currency before creating an invoice.'),
-                false
-            );
+            return {
+                field: null,
+                message: 'Add an active currency before creating an invoice.',
+            };
         }
 
         if (s === 'details') {
-            if (!form.data.client_id)
-                return (toast.error('Select a client.'), false);
-            if (!form.data.issue_date)
-                return (toast.error('Issue date is required.'), false);
-            if (!form.data.currency_code)
-                return (toast.error('Currency is required.'), false);
-
-            if (form.data.is_recurring) {
-                if (!form.data.recurrence_frequency)
-                    return (
-                        toast.error('Select a recurrence frequency.'),
-                        false
-                    );
-                if (
-                    !form.data.recurrence_interval ||
-                    form.data.recurrence_interval < 1
-                )
-                    return (
-                        toast.error('Recurrence interval must be at least 1.'),
-                        false
-                    );
+            if (!form.data.client_id) {
+                return { field: 'client_id', message: 'Select a client.' };
+            }
+            if (!form.data.issue_date) {
+                return {
+                    field: 'issue_date',
+                    message: 'Issue date is required.',
+                };
+            }
+            if (!form.data.currency_code) {
+                return {
+                    field: 'currency_code',
+                    message: 'Currency is required.',
+                };
             }
         }
 
@@ -282,23 +418,91 @@ export default function InvoicesCreate({
                     Number(it.quantity) > 0 &&
                     Number(it.unit_price) >= 0,
             );
-            if (!hasValidItem)
-                return (
-                    toast.error('Add at least one valid line item.'),
-                    false
-                );
+
+            if (!hasValidItem) {
+                return {
+                    field: 'item_description',
+                    message: 'Add at least one valid line item.',
+                };
+            }
         }
 
         if (s === 'review') {
-            const d = Number(form.data.invoice_discount || 0);
-            if (d < 0)
-                return (
-                    toast.error('Invoice discount cannot be negative.'),
-                    false
-                );
+            if (Number(form.data.invoice_discount || 0) < 0) {
+                return {
+                    field: 'invoice_discount',
+                    message: 'Invoice discount cannot be negative.',
+                };
+            }
+
+            if (form.data.is_recurring) {
+                if (!form.data.recurrence_frequency) {
+                    return {
+                        field: 'recurrence_frequency',
+                        message: 'Select a recurrence frequency.',
+                    };
+                }
+                if (
+                    !form.data.recurrence_interval ||
+                    form.data.recurrence_interval < 1
+                ) {
+                    return {
+                        field: 'recurrence_interval',
+                        message: 'Recurrence interval must be at least 1.',
+                    };
+                }
+            }
+
+            if (form.data.send_to_client && !clientEmail) {
+                return {
+                    field: 'send_to_client',
+                    message:
+                        'The selected client has no email address to send to.',
+                };
+            }
         }
 
-        return true;
+        return null;
+    };
+
+    /**
+     * Drop the hand the moment the field it is pointing at stops being the
+     * problem, rather than making the user click Next again to find out. If a
+     * later field on the same step is still incomplete it stays silent — the
+     * next Next will point at it.
+     */
+    React.useEffect(() => {
+        if (!blockedField) {
+            return;
+        }
+
+        if (stepIssue(step)?.field !== blockedField) {
+            setBlockedField(null);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [form.data, clientEmail, blockedField, step]);
+
+    const validateStep = (s: StepKey) => {
+        const issue = stepIssue(s);
+
+        setBlockedField(issue?.field ?? null);
+
+        if (!issue) {
+            return true;
+        }
+
+        toast.error(issue.message);
+
+        if (issue.field) {
+            /** Let the hand render before scrolling it into view. */
+            window.requestAnimationFrame(() => {
+                const el = document.getElementById(`field-${issue.field}`);
+                el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                el?.focus({ preventScroll: true });
+            });
+        }
+
+        return false;
     };
 
     const order: StepKey[] = ['details', 'items', 'review'];
@@ -319,6 +523,8 @@ export default function InvoicesCreate({
             if (!validateStep(order[i])) return;
         }
 
+        setPreviewLoading(true);
+
         try {
             const res = await fetch('/invoices/preview', {
                 method: 'POST',
@@ -332,7 +538,7 @@ export default function InvoicesCreate({
                             ) as HTMLMetaElement
                         )?.content ?? '',
                 },
-                body: JSON.stringify(form.data),
+                body: JSON.stringify({ ...form.data, embed: true }),
             });
 
             if (!res.ok) {
@@ -343,10 +549,13 @@ export default function InvoicesCreate({
             }
 
             const html = await res.text();
+            setPreviewPageHeight(A4_HEIGHT_PX);
             setPreviewHtml(html);
             setPreviewOpen(true);
         } catch (e) {
             toast.error('Preview failed.');
+        } finally {
+            setPreviewLoading(false);
         }
     };
 
@@ -356,8 +565,17 @@ export default function InvoicesCreate({
 
         form.post('/invoices', {
             preserveScroll: true,
-            preserveState: false, // ✅ ensures UI updates after redirect
-            onSuccess: () => toast.success('Invoice created.'),
+            /**
+             * Success navigates away to the new invoice, so this only matters
+             * when the server refuses: keep the wizard where it was instead of
+             * remounting back to step one and losing everything typed.
+             */
+            preserveState: true,
+            /**
+             * No success toast here — the redirect lands on the invoice, which
+             * flashes the server's message. That one also says whether the
+             * email was queued, so toasting here would only duplicate it.
+             */
             onError: (errors) =>
                 toast.error(
                     errors?.client_id ||
@@ -372,106 +590,16 @@ export default function InvoicesCreate({
         });
     };
 
-    const StepIcon = steps.find((s) => s.key === step)?.icon ?? ClipboardList;
-
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Create invoice" />
 
-            {/* ✅ Sticky Top Bar */}
-            <div className="sticky top-0 z-30 border-b bg-background/80 backdrop-blur">
-                <div className="mx-auto flex w-full items-center justify-between gap-3 px-4 py-3 sm:px-6">
-                    <div className="flex min-w-0 items-center gap-3">
-                        <div className="grid h-10 w-10 place-items-center rounded-2xl bg-muted">
-                            <StepIcon className="h-5 w-5 opacity-80" />
-                        </div>
-                        <div className="min-w-0">
-                            <div className="truncate text-sm font-semibold">
-                                Create invoice
-                            </div>
-                            <div className="truncate text-xs text-muted-foreground">
-                                {steps.find((s) => s.key === step)?.title} •{' '}
-                                {steps.find((s) => s.key === step)?.description}
-                            </div>
-                        </div>
-                    </div>
+            {/* Plan refusals stop the work, so they get a dialog not a toast. */}
+            <LimitNoticeDialog notice={limitNotice} />
 
-                    <div className="flex items-center gap-2">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={goBack}
-                            disabled={step === 'details' || form.processing}
-                            className="rounded-xl"
-                        >
-                            <ArrowLeft className="mr-2 h-4 w-4" />
-                            Back
-                        </Button>
-
-                        {step !== 'review' ? (
-                            <Button
-                                type="button"
-                                onClick={goNext}
-                                disabled={form.processing || !canCreateInvoice}
-                                className="rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                            >
-                                Next
-                                <ArrowRight className="ml-2 h-4 w-4" />
-                            </Button>
-                        ) : (
-                            <Button
-                                type="button"
-                                onClick={submit}
-                                disabled={form.processing || !canCreateInvoice}
-                                className="rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                            >
-                                Create
-                                <CheckCircle2 className="ml-2 h-4 w-4" />
-                            </Button>
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            <motion.div
-                initial={{ opacity: 0, y: 14 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.25, ease: 'easeOut' }}
-                className="mx-auto w-full px-4 py-8 sm:px-6"
-            >
-                {/* Headline */}
-                <div className="mb-6 flex items-start justify-between gap-4">
-                    <div className="flex items-start gap-3">
-                        <div className="grid h-11 w-11 place-items-center rounded-2xl bg-muted">
-                            <FileText className="h-6 w-6 opacity-80" />
-                        </div>
-                        <div>
-                            <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                                Create invoice
-                            </h1>
-                            <p className="mt-1 text-sm text-muted-foreground">
-                                Details → Items → Review. Preview before
-                                creating.
-                            </p>
-                        </div>
-                    </div>
-
-                    {step === 'review' && (
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={openPreview}
-                            disabled={!canCreateInvoice}
-                            className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                        >
-                            <Eye className="h-4 w-4" />
-                            Preview
-                        </Button>
-                    )}
-                </div>
-
+            <div className="mx-auto w-full py-3">
                 {!canCreateInvoice && (
-                    <Card className="mb-6 rounded-2xl border-dashed bg-muted/20 p-5 shadow-sm">
+                    <Panel className="mb-4">
                         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                                 <div className="text-sm font-semibold">
@@ -489,1002 +617,1376 @@ export default function InvoicesCreate({
                             <div className="flex flex-col gap-2 sm:flex-row">
                                 {hasActiveCompany ? (
                                     <>
-                                        <Button asChild className="rounded-xl">
-                                            <Link href="/clients/create">
-                                                Add client
-                                            </Link>
-                                        </Button>
-                                        <Button
-                                            asChild
-                                            variant="outline"
-                                            className="rounded-xl"
+                                        <Link
+                                            href="/clients/create"
+                                            className={pillButtonClass(
+                                                'solid',
+                                                'sm',
+                                            )}
                                         >
-                                            <Link href="/settings/currencies">
-                                                Manage currencies
-                                            </Link>
-                                        </Button>
+                                            Add client
+                                        </Link>
+                                        <Link
+                                            href="/settings/currencies"
+                                            className={pillButtonClass(
+                                                'ghost',
+                                                'sm',
+                                            )}
+                                        >
+                                            Manage currencies
+                                        </Link>
                                     </>
                                 ) : (
-                                    <Button asChild className="rounded-xl">
-                                        <Link href="/companies">
-                                            Manage companies
-                                        </Link>
-                                    </Button>
+                                    <Link
+                                        href="/companies"
+                                        className={pillButtonClass(
+                                            'solid',
+                                            'sm',
+                                        )}
+                                    >
+                                        Manage companies
+                                    </Link>
                                 )}
                             </div>
                         </div>
-                    </Card>
+                    </Panel>
                 )}
-
-                {/* Step Cards */}
-                <div className="mb-6 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                    {steps.map((s) => {
-                        const Icon = s.icon;
-                        const active = s.key === step;
-                        const cur = order.indexOf(step);
-                        const target = order.indexOf(s.key);
-                        const done = target < cur;
-
-                        return (
-                            <button
-                                key={s.key}
-                                type="button"
-                                onClick={() => {
-                                    // back freely
-                                    if (target <= cur) return setStep(s.key);
-                                    // forward requires current step valid
-                                    if (!validateStep(step)) return;
-                                    setStep(s.key);
-                                }}
-                                className={cn(
-                                    'rounded-2xl border bg-background p-4 text-left shadow-sm transition',
-                                    'hover:bg-muted/20',
-                                    active &&
-                                        'border-foreground/20 bg-muted/20',
-                                )}
-                            >
-                                <div className="flex items-start gap-3">
-                                    <div
-                                        className={cn(
-                                            'grid h-10 w-10 place-items-center rounded-2xl',
-                                            done
-                                                ? 'bg-foreground text-background'
-                                                : active
-                                                  ? 'bg-foreground/90 text-background'
-                                                  : 'bg-muted',
-                                        )}
-                                    >
-                                        <Icon className="h-5 w-5 opacity-90" />
-                                    </div>
-
-                                    <div className="min-w-0 flex-1">
-                                        <div className="flex items-center justify-between gap-2">
-                                            <div className="text-sm font-semibold">
-                                                {s.title}
-                                            </div>
-                                            {done && (
-                                                <CheckCircle2 className="h-4 w-4 opacity-70" />
-                                            )}
-                                        </div>
-                                        <div className="mt-1 text-xs text-muted-foreground">
-                                            {s.description}
-                                        </div>
-
-                                        <div className="mt-3 h-[2px] w-full overflow-hidden rounded-full bg-muted">
-                                            <motion.div
-                                                initial={false}
-                                                animate={{
-                                                    width: done
-                                                        ? '100%'
-                                                        : active
-                                                          ? '66%'
-                                                          : '0%',
-                                                }}
-                                                transition={{
-                                                    duration: 0.25,
-                                                    ease: 'easeOut',
-                                                }}
-                                                className="h-full bg-foreground/80"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            </button>
-                        );
-                    })}
-                </div>
-
-                {/* Totals Strip */}
-                <Card className="mb-6 rounded-2xl border bg-background p-4 shadow-sm">
-                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-6">
-                        <MiniStat
-                            label="Subtotal"
-                            value={fmt(computed.subtotal)}
-                        />
-                        <MiniStat
-                            label="Line discount"
-                            value={fmt(computed.lineDiscount)}
-                        />
-                        <MiniStat label="Tax" value={fmt(computed.tax)} />
-                        <MiniStat
-                            label="Invoice discount"
-                            value={
-                                step === 'review'
-                                    ? fmt(computed.invoiceDiscount)
-                                    : '—'
-                            }
-                        />
-                        <MiniStat
-                            label="Total"
-                            value={fmt(computed.total)}
-                            strong
-                        />
-                        <MiniStat
-                            label="Currency"
-                            value={form.data.currency_code || 'Not set'}
-                        />
-                    </div>
-                </Card>
 
                 <form
                     onSubmit={(e) => {
                         e.preventDefault();
+
+                        /**
+                         * Only act on this form's own submit. Dialogs rendered
+                         * from inside it are portalled out of the DOM but still
+                         * bubble through React, so a nested form saving its own
+                         * data must not create the invoice.
+                         */
+                        if (e.target !== e.currentTarget) {
+                            return;
+                        }
+
                         step === 'review' ? submit() : goNext();
                     }}
-                    className="space-y-6"
                 >
-                    <AnimatePresence mode="wait">
-                        {/* DETAILS */}
-                        {step === 'details' && (
-                            <motion.div
-                                key="details"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: 10 }}
-                                transition={{ duration: 0.22 }}
-                                className="grid grid-cols-1 gap-6 lg:grid-cols-12"
-                            >
-                                <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-7">
-                                    <SectionTitle
-                                        icon={ClipboardList}
-                                        title="Invoice details"
-                                    />
-
-                                    <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                        <Field label="Client *">
-                                            <Select
-                                                value={form.data.client_id}
-                                                disabled={!hasClients}
-                                                onValueChange={(v) =>
-                                                    form.setData('client_id', v)
-                                                }
-                                            >
-                                                <SelectTrigger className="rounded-xl">
-                                                    <SelectValue placeholder="Select client" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {hasClients ? (
-                                                        clients.map((c) => (
-                                                            <SelectItem
-                                                                key={c.id}
-                                                                value={String(
-                                                                    c.id,
-                                                                )}
-                                                            >
-                                                                {c.name}
-                                                            </SelectItem>
-                                                        ))
-                                                    ) : (
-                                                        <div className="px-2 py-3 text-sm text-muted-foreground">
-                                                            No clients yet. Add
-                                                            a client to
-                                                            continue.
-                                                        </div>
-                                                    )}
-                                                </SelectContent>
-                                            </Select>
-                                            {!hasClients && (
-                                                <p className="mt-1 text-sm text-muted-foreground">
-                                                    Create a client first, then
-                                                    return here.
-                                                </p>
-                                            )}
-                                            {form.errors.client_id && (
-                                                <p className="mt-1 text-sm text-destructive">
-                                                    {form.errors.client_id}
-                                                </p>
-                                            )}
-                                        </Field>
-
-                                        <Field label="Template">
-                                            <Select
-                                                value={
-                                                    form.data
-                                                        .invoice_template_id
-                                                }
-                                                onValueChange={(v) =>
-                                                    form.setData(
-                                                        'invoice_template_id',
-                                                        v,
-                                                    )
-                                                }
-                                            >
-                                                <SelectTrigger className="rounded-xl">
-                                                    <SelectValue placeholder="Select template" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {templates.map((t) => (
-                                                        <SelectItem
-                                                            key={t.id}
-                                                            value={String(t.id)}
-                                                        >
-                                                            {t.name}
-                                                            {t.is_default
-                                                                ? ' (default)'
-                                                                : ''}
-                                                        </SelectItem>
-                                                    ))}
-                                                </SelectContent>
-                                            </Select>
-                                        </Field>
-
-                                        <Field label="Issue date *">
-                                            <Input
-                                                type="date"
-                                                value={form.data.issue_date}
-                                                onChange={(e) =>
-                                                    form.setData(
-                                                        'issue_date',
-                                                        e.target.value,
-                                                    )
-                                                }
-                                                className="rounded-xl"
-                                                required
+                    <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
+                        {/* ============ The invoice ============ */}
+                        <div className="lg:col-span-8">
+                            <AnimatePresence mode="wait">
+                                {step === 'details' && (
+                                    <motion.div
+                                        key="details"
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 10 }}
+                                        transition={{ duration: 0.22 }}
+                                    >
+                                        <Panel>
+                                            <SectionTitle
+                                                icon={ClipboardList}
+                                                title="Invoice details"
                                             />
-                                        </Field>
 
-                                        <Field label="Due date">
-                                            <Input
-                                                type="date"
-                                                value={form.data.due_date}
-                                                onChange={(e) =>
-                                                    form.setData(
-                                                        'due_date',
-                                                        e.target.value,
-                                                    )
-                                                }
-                                                className="rounded-xl"
-                                            />
-                                        </Field>
-
-                                        <Field
-                                            label="Currency *"
-                                            className="sm:col-span-2"
-                                        >
-                                            <Select
-                                                value={form.data.currency_code}
-                                                disabled={!hasCurrencies}
-                                                onValueChange={(v) =>
-                                                    form.setData(
-                                                        'currency_code',
-                                                        v,
-                                                    )
-                                                }
-                                            >
-                                                <SelectTrigger className="rounded-xl">
-                                                    <SelectValue placeholder="Select currency" />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    {hasCurrencies ? (
-                                                        currencyList.map((c) => (
-                                                            <SelectItem
-                                                                key={c.code}
-                                                                value={c.code}
-                                                            >
-                                                                {c.code} —{' '}
-                                                                {c.name}
-                                                            </SelectItem>
-                                                        ))
-                                                    ) : (
-                                                        <div className="px-2 py-3 text-sm text-muted-foreground">
-                                                            No active
-                                                            currencies
-                                                            configured yet.
-                                                        </div>
-                                                    )}
-                                                </SelectContent>
-                                            </Select>
-                                            {!hasCurrencies && (
-                                                <p className="mt-1 text-sm text-muted-foreground">
-                                                    Activate at least one
-                                                    currency before creating an
-                                                    invoice.
-                                                </p>
-                                            )}
-                                        </Field>
-
-                                        <Field label="Title">
-                                            <Input
-                                                value={form.data.title}
-                                                onChange={(e) =>
-                                                    form.setData(
-                                                        'title',
-                                                        e.target.value,
-                                                    )
-                                                }
-                                                className="rounded-xl"
-                                                placeholder="Optional invoice title"
-                                            />
-                                        </Field>
-
-                                        <Field label="Reference">
-                                            <Input
-                                                value={form.data.reference}
-                                                onChange={(e) =>
-                                                    form.setData(
-                                                        'reference',
-                                                        e.target.value,
-                                                    )
-                                                }
-                                                className="rounded-xl"
-                                                placeholder="PO / Reference"
-                                            />
-                                        </Field>
-                                    </div>
-
-                                    <Separator className="my-6" />
-
-                                    <div className="flex items-center justify-between rounded-2xl border p-4">
-                                        <div>
-                                            <div className="text-sm font-semibold">
-                                                Delivery note
-                                            </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                Enable if you want a delivery
-                                                note option later.
-                                            </div>
-                                        </div>
-                                        <Switch
-                                            checked={
-                                                !!form.data.has_delivery_note
-                                            }
-                                            onCheckedChange={(v) =>
-                                                form.setData(
-                                                    'has_delivery_note',
-                                                    !!v,
-                                                )
-                                            }
-                                        />
-                                    </div>
-
-                                    <Separator className="my-6" />
-
-                                    <div className="grid grid-cols-1 gap-4">
-                                        <Field label="Notes">
-                                            <Textarea
-                                                value={form.data.notes}
-                                                onChange={(e) =>
-                                                    form.setData(
-                                                        'notes',
-                                                        e.target.value,
-                                                    )
-                                                }
-                                                className="min-h-[90px] rounded-xl"
-                                            />
-                                        </Field>
-                                        <Field label="Terms">
-                                            <Textarea
-                                                value={form.data.terms}
-                                                onChange={(e) =>
-                                                    form.setData(
-                                                        'terms',
-                                                        e.target.value,
-                                                    )
-                                                }
-                                                className="min-h-[90px] rounded-xl"
-                                            />
-                                        </Field>
-                                    </div>
-                                </Card>
-
-                                <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-5">
-                                    <SectionTitle
-                                        icon={CalendarClock}
-                                        title="Recurrence"
-                                    />
-
-                                    <div className="mt-4 flex items-center justify-between rounded-2xl border p-4">
-                                        <div>
-                                            <div className="text-sm font-semibold">
-                                                Recurring invoice
-                                            </div>
-                                            <div className="text-xs text-muted-foreground">
-                                                Leave room for cron jobs later.
-                                            </div>
-                                        </div>
-                                        <Switch
-                                            checked={!!form.data.is_recurring}
-                                            onCheckedChange={(v) =>
-                                                form.setData(
-                                                    'is_recurring',
-                                                    !!v,
-                                                )
-                                            }
-                                        />
-                                    </div>
-
-                                    {form.data.is_recurring && (
-                                        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                            <Field
-                                                label="Frequency *"
-                                                className="sm:col-span-2"
-                                            >
-                                                <Select
-                                                    value={
-                                                        form.data
-                                                            .recurrence_frequency
-                                                    }
-                                                    onValueChange={(v) =>
-                                                        form.setData(
-                                                            'recurrence_frequency',
-                                                            v,
-                                                        )
-                                                    }
-                                                >
-                                                    <SelectTrigger className="rounded-xl">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="daily">
-                                                            Daily
-                                                        </SelectItem>
-                                                        <SelectItem value="weekly">
-                                                            Weekly
-                                                        </SelectItem>
-                                                        <SelectItem value="monthly">
-                                                            Monthly
-                                                        </SelectItem>
-                                                        <SelectItem value="yearly">
-                                                            Yearly
-                                                        </SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </Field>
-
-                                            <Field label="Interval *">
-                                                <Input
-                                                    type="number"
-                                                    min={1}
-                                                    value={
-                                                        form.data
-                                                            .recurrence_interval
-                                                    }
-                                                    onChange={(e) =>
-                                                        form.setData(
-                                                            'recurrence_interval',
-                                                            Number(
-                                                                e.target.value,
-                                                            ),
-                                                        )
-                                                    }
-                                                    className="rounded-xl"
-                                                />
-                                            </Field>
-
-                                            <Field label="Start date">
-                                                <Input
-                                                    type="date"
-                                                    value={
-                                                        form.data
-                                                            .recurrence_start_date
-                                                    }
-                                                    onChange={(e) =>
-                                                        form.setData(
-                                                            'recurrence_start_date',
-                                                            e.target.value,
-                                                        )
-                                                    }
-                                                    className="rounded-xl"
-                                                />
-                                            </Field>
-
-                                            <Field label="End date">
-                                                <Input
-                                                    type="date"
-                                                    value={
-                                                        form.data
-                                                            .recurrence_end_date
-                                                    }
-                                                    onChange={(e) =>
-                                                        form.setData(
-                                                            'recurrence_end_date',
-                                                            e.target.value,
-                                                        )
-                                                    }
-                                                    className="rounded-xl"
-                                                />
-                                            </Field>
-                                        </div>
-                                    )}
-                                </Card>
-                            </motion.div>
-                        )}
-
-                        {/* ITEMS */}
-                        {step === 'items' && (
-                            <motion.div
-                                key="items"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: 10 }}
-                                transition={{ duration: 0.22 }}
-                                className="grid grid-cols-1 gap-6 lg:grid-cols-12"
-                            >
-                                <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-8">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <SectionTitle
-                                            icon={Receipt}
-                                            title="Line items"
-                                        />
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={addItem}
-                                            className="rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                                        >
-                                            <Plus className="mr-2 h-4 w-4" />
-                                            Add item
-                                        </Button>
-                                    </div>
-
-                                    <div className="mt-4 space-y-4">
-                                        {form.data.items.map((it, idx) => (
-                                            <motion.div
-                                                key={idx}
-                                                initial={{ opacity: 0, y: 10 }}
-                                                animate={{ opacity: 1, y: 0 }}
-                                                transition={{ duration: 0.18 }}
-                                                className="rounded-2xl border p-4"
-                                            >
-                                                <div className="flex items-start justify-between gap-2">
-                                                    <div className="text-sm font-semibold">
-                                                        Item {idx + 1}
-                                                    </div>
-                                                    <Button
-                                                        type="button"
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() =>
-                                                            removeItem(idx)
+                                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                                <FormField label="Client *">
+                                                    <RequiredHand
+                                                        show={
+                                                            blockedField ===
+                                                            'client_id'
                                                         }
-                                                        className="rounded-xl"
-                                                    >
-                                                        <Trash2 className="h-4 w-4" />
-                                                    </Button>
-                                                </div>
-
-                                                <div className="mt-3 space-y-3">
-                                                    <Field label="Description *">
-                                                        <Input
-                                                            value={
-                                                                it.description
-                                                            }
-                                                            onChange={(e) =>
-                                                                updateItem(
-                                                                    idx,
-                                                                    'description',
-                                                                    e.target
-                                                                        .value,
-                                                                )
-                                                            }
-                                                            className="rounded-xl"
-                                                            required
-                                                        />
-                                                    </Field>
-
-                                                    <div className="grid grid-cols-2 gap-3">
-                                                        <Field label="Qty *">
-                                                            <Input
-                                                                type="number"
-                                                                min={0.01}
-                                                                step={0.01}
-                                                                value={
-                                                                    it.quantity
-                                                                }
-                                                                onChange={(e) =>
-                                                                    updateItem(
-                                                                        idx,
-                                                                        'quantity',
-                                                                        Number(
-                                                                            e
-                                                                                .target
-                                                                                .value,
-                                                                        ),
-                                                                    )
-                                                                }
-                                                                className="rounded-xl"
-                                                            />
-                                                        </Field>
-
-                                                        <Field label="Unit price *">
-                                                            <Input
-                                                                type="number"
-                                                                min={0}
-                                                                step={0.01}
-                                                                value={
-                                                                    it.unit_price
-                                                                }
-                                                                onChange={(e) =>
-                                                                    updateItem(
-                                                                        idx,
-                                                                        'unit_price',
-                                                                        Number(
-                                                                            e
-                                                                                .target
-                                                                                .value,
-                                                                        ),
-                                                                    )
-                                                                }
-                                                                className="rounded-xl"
-                                                            />
-                                                        </Field>
-
-                                                        <Field label="Discount">
-                                                            <Input
-                                                                type="number"
-                                                                min={0}
-                                                                step={0.01}
-                                                                value={
-                                                                    it.discount
-                                                                }
-                                                                onChange={(e) =>
-                                                                    updateItem(
-                                                                        idx,
-                                                                        'discount',
-                                                                        Number(
-                                                                            e
-                                                                                .target
-                                                                                .value,
-                                                                        ),
-                                                                    )
-                                                                }
-                                                                className="rounded-xl"
-                                                            />
-                                                        </Field>
-
-                                                        <Field label="Tax">
-                                                            <Input
-                                                                type="number"
-                                                                min={0}
-                                                                step={0.01}
-                                                                value={it.tax}
-                                                                onChange={(e) =>
-                                                                    updateItem(
-                                                                        idx,
-                                                                        'tax',
-                                                                        Number(
-                                                                            e
-                                                                                .target
-                                                                                .value,
-                                                                        ),
-                                                                    )
-                                                                }
-                                                                className="rounded-xl"
-                                                            />
-                                                        </Field>
-                                                    </div>
-                                                </div>
-                                            </motion.div>
-                                        ))}
-                                    </div>
-                                </Card>
-
-                                <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-4">
-                                    <SectionTitle
-                                        icon={BadgePercent}
-                                        title="Totals (preview)"
-                                    />
-                                    <div className="mt-4 space-y-2 rounded-2xl border bg-muted/20 p-4">
-                                        <Row
-                                            label="Subtotal"
-                                            value={computed.subtotal}
-                                            precision={precision}
-                                        />
-                                        <Row
-                                            label="Line discount"
-                                            value={computed.lineDiscount}
-                                            precision={precision}
-                                        />
-                                        <Row
-                                            label="Tax"
-                                            value={computed.tax}
-                                            precision={precision}
-                                        />
-                                        <Separator className="my-2" />
-                                        <Row
-                                            label="Total"
-                                            value={computed.total}
-                                            precision={precision}
-                                            strong
-                                        />
-                                    </div>
-                                    <div className="mt-4 text-xs text-muted-foreground">
-                                        Overall invoice discount is applied on
-                                        the review step.
-                                    </div>
-                                </Card>
-                            </motion.div>
-                        )}
-
-                        {/* REVIEW */}
-                        {step === 'review' && (
-                            <motion.div
-                                key="review"
-                                initial={{ opacity: 0, y: 10 }}
-                                animate={{ opacity: 1, y: 0 }}
-                                exit={{ opacity: 0, y: 10 }}
-                                transition={{ duration: 0.22 }}
-                                className="grid grid-cols-1 gap-6 lg:grid-cols-12"
-                            >
-                                <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-8">
-                                    <div className="flex items-center justify-between gap-3">
-                                        <SectionTitle
-                                            icon={CheckCircle2}
-                                            title="Review"
-                                        />
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={openPreview}
-                                            disabled={!canCreateInvoice}
-                                            className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                                        >
-                                            <Eye className="h-4 w-4" />
-                                            Preview invoice
-                                        </Button>
-                                    </div>
-
-                                    <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                        <ReviewField
-                                            label="Client"
-                                            value={clientLabel(
-                                                clients,
-                                                form.data.client_id,
-                                            )}
-                                        />
-                                        <ReviewField
-                                            label="Template"
-                                            value={templateLabel(
-                                                templates,
-                                                form.data.invoice_template_id,
-                                            )}
-                                        />
-                                        <ReviewField
-                                            label="Issue date"
-                                            value={form.data.issue_date || '—'}
-                                        />
-                                        <ReviewField
-                                            label="Due date"
-                                            value={form.data.due_date || '—'}
-                                        />
-                                        <ReviewField
-                                            label="Currency"
-                                            value={
-                                                form.data.currency_code ||
-                                                'Not set'
-                                            }
-                                        />
-                                        <ReviewField
-                                            label="Delivery note"
-                                            value={
-                                                form.data.has_delivery_note
-                                                    ? 'Yes'
-                                                    : 'No'
-                                            }
-                                        />
-                                        <ReviewField
-                                            label="Recurring"
-                                            value={
-                                                form.data.is_recurring
-                                                    ? 'Yes'
-                                                    : 'No'
-                                            }
-                                        />
-                                        <ReviewField
-                                            label="Status"
-                                            value={form.data.status}
-                                        />
-                                    </div>
-
-                                    <Separator className="my-6" />
-
-                                    <div className="rounded-2xl border p-4">
-                                        <div className="flex items-start gap-3">
-                                            <div className="grid h-10 w-10 place-items-center rounded-2xl bg-muted">
-                                                <BadgePercent className="h-5 w-5 opacity-80" />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <div className="text-sm font-semibold">
-                                                    Final adjustments
-                                                </div>
-                                                <div className="text-xs text-muted-foreground">
-                                                    Overall discount + invoice
-                                                    status.
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                            <Field label="Overall discount">
-                                                <Input
-                                                    type="number"
-                                                    min={0}
-                                                    step={0.01}
-                                                    value={
-                                                        form.data
-                                                            .invoice_discount
-                                                    }
-                                                    onChange={(e) =>
-                                                        form.setData(
-                                                            'invoice_discount',
-                                                            Number(
-                                                                e.target.value,
-                                                            ),
-                                                        )
-                                                    }
-                                                    className="rounded-xl"
-                                                />
-                                            </Field>
-
-                                            <div className="space-y-2">
-                                                <Label>Status</Label>
-                                                <div className="flex gap-2">
-                                                    <StatusPill
-                                                        active={
-                                                            form.data.status ===
-                                                            'pending'
-                                                        }
-                                                        onClick={() =>
-                                                            form.setData(
-                                                                'status',
-                                                                'pending',
-                                                            )
-                                                        }
-                                                        label="Pending"
+                                                        message="Pick a client to bill."
                                                     />
-                                                    <StatusPill
-                                                        active={
-                                                            form.data.status ===
-                                                            'paid'
-                                                        }
-                                                        onClick={() =>
-                                                            form.setData(
-                                                                'status',
-                                                                'paid',
-                                                            )
-                                                        }
-                                                        label="Paid"
-                                                    />
-                                                </div>
-                                                {/* keep Select for accessibility / form consistency */}
-                                                <div className="hidden">
                                                     <Select
-                                                        value={form.data.status}
+                                                        value={
+                                                            form.data.client_id
+                                                        }
+                                                        disabled={!hasClients}
                                                         onValueChange={(v) =>
                                                             form.setData(
-                                                                'status',
-                                                                v as InvoiceStatus,
+                                                                'client_id',
+                                                                v,
                                                             )
                                                         }
                                                     >
-                                                        <SelectTrigger />
+                                                        <SelectTrigger
+                                                            id="field-client_id"
+                                                            className={
+                                                                fieldInputClass
+                                                            }
+                                                        >
+                                                            <SelectValue placeholder="Select client" />
+                                                        </SelectTrigger>
                                                         <SelectContent>
-                                                            <SelectItem value="pending">
-                                                                Pending
-                                                            </SelectItem>
-                                                            <SelectItem value="paid">
-                                                                Paid
-                                                            </SelectItem>
+                                                            {hasClients ? (
+                                                                clients.map(
+                                                                    (c) => (
+                                                                        <SelectItem
+                                                                            key={
+                                                                                c.id
+                                                                            }
+                                                                            value={String(
+                                                                                c.id,
+                                                                            )}
+                                                                        >
+                                                                            {
+                                                                                c.name
+                                                                            }
+                                                                        </SelectItem>
+                                                                    ),
+                                                                )
+                                                            ) : (
+                                                                <div className="px-2 py-3 text-sm text-muted-foreground">
+                                                                    No clients
+                                                                    yet. Add a
+                                                                    client to
+                                                                    continue.
+                                                                </div>
+                                                            )}
                                                         </SelectContent>
                                                     </Select>
+                                                    {!hasClients && (
+                                                        <p className="mt-1 text-sm text-muted-foreground">
+                                                            Create a client
+                                                            first, then return
+                                                            here.
+                                                        </p>
+                                                    )}
+                                                    {form.errors.client_id && (
+                                                        <p className="mt-1 text-sm text-destructive">
+                                                            {
+                                                                form.errors
+                                                                    .client_id
+                                                            }
+                                                        </p>
+                                                    )}
+                                                </FormField>
+
+                                                <FormField label="Template">
+                                                    <Select
+                                                        value={
+                                                            form.data
+                                                                .invoice_template_id
+                                                        }
+                                                        onValueChange={(v) =>
+                                                            form.setData(
+                                                                'invoice_template_id',
+                                                                v,
+                                                            )
+                                                        }
+                                                    >
+                                                        <SelectTrigger
+                                                            className={
+                                                                fieldInputClass
+                                                            }
+                                                        >
+                                                            <SelectValue placeholder="Select template" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {templates.map(
+                                                                (t) => (
+                                                                    <SelectItem
+                                                                        key={
+                                                                            t.id
+                                                                        }
+                                                                        value={String(
+                                                                            t.id,
+                                                                        )}
+                                                                    >
+                                                                        {t.name}
+                                                                        {t.is_default
+                                                                            ? ' (default)'
+                                                                            : ''}
+                                                                    </SelectItem>
+                                                                ),
+                                                            )}
+                                                        </SelectContent>
+                                                    </Select>
+                                                </FormField>
+
+                                                <FormField label="Issue date *">
+                                                    <RequiredHand
+                                                        show={
+                                                            blockedField ===
+                                                            'issue_date'
+                                                        }
+                                                        message="An issue date is required."
+                                                    />
+                                                    <Input
+                                                        id="field-issue_date"
+                                                        className={
+                                                            fieldInputClass
+                                                        }
+                                                        type="date"
+                                                        value={
+                                                            form.data.issue_date
+                                                        }
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'issue_date',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        required
+                                                    />
+                                                </FormField>
+
+                                                <FormField label="Due date">
+                                                    <Input
+                                                        className={
+                                                            fieldInputClass
+                                                        }
+                                                        type="date"
+                                                        value={
+                                                            form.data.due_date
+                                                        }
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'due_date',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                    />
+                                                </FormField>
+
+                                                <FormField
+                                                    label="Currency *"
+                                                    className="sm:col-span-2"
+                                                >
+                                                    <RequiredHand
+                                                        show={
+                                                            blockedField ===
+                                                            'currency_code'
+                                                        }
+                                                        message="Choose the billing currency."
+                                                    />
+                                                    <Select
+                                                        value={
+                                                            form.data
+                                                                .currency_code
+                                                        }
+                                                        disabled={
+                                                            !hasCurrencies
+                                                        }
+                                                        onValueChange={(v) =>
+                                                            form.setData(
+                                                                'currency_code',
+                                                                v,
+                                                            )
+                                                        }
+                                                    >
+                                                        <SelectTrigger
+                                                            id="field-currency_code"
+                                                            className={
+                                                                fieldInputClass
+                                                            }
+                                                        >
+                                                            <SelectValue placeholder="Select currency" />
+                                                        </SelectTrigger>
+                                                        <SelectContent>
+                                                            {hasCurrencies ? (
+                                                                currencyList.map(
+                                                                    (c) => (
+                                                                        <SelectItem
+                                                                            key={
+                                                                                c.code
+                                                                            }
+                                                                            value={
+                                                                                c.code
+                                                                            }
+                                                                        >
+                                                                            {
+                                                                                c.code
+                                                                            }{' '}
+                                                                            —{' '}
+                                                                            {
+                                                                                c.name
+                                                                            }
+                                                                        </SelectItem>
+                                                                    ),
+                                                                )
+                                                            ) : (
+                                                                <div className="px-2 py-3 text-sm text-muted-foreground">
+                                                                    No active
+                                                                    currencies
+                                                                    configured
+                                                                    yet.
+                                                                </div>
+                                                            )}
+                                                        </SelectContent>
+                                                    </Select>
+                                                    {!hasCurrencies && (
+                                                        <p className="mt-1 text-sm text-muted-foreground">
+                                                            Activate at least
+                                                            one currency before
+                                                            creating an invoice.
+                                                        </p>
+                                                    )}
+                                                </FormField>
+
+                                                <FormField label="Title">
+                                                    <Input
+                                                        className={
+                                                            fieldInputClass
+                                                        }
+                                                        value={form.data.title}
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'title',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        placeholder="Optional invoice title"
+                                                    />
+                                                </FormField>
+
+                                                <FormField label="Reference">
+                                                    <Input
+                                                        className={
+                                                            fieldInputClass
+                                                        }
+                                                        value={
+                                                            form.data.reference
+                                                        }
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'reference',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                        placeholder="PO / Reference"
+                                                    />
+                                                </FormField>
+                                            </div>
+
+                                            <SoftTile className="mt-4 flex items-center justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="text-sm font-semibold">
+                                                        Delivery note
+                                                    </div>
+                                                    <div className="text-xs text-muted-foreground">
+                                                        Enable if you want a
+                                                        delivery note option
+                                                        later.
+                                                    </div>
                                                 </div>
-                                                {form.errors.status && (
-                                                    <p className="text-sm text-destructive">
-                                                        {form.errors.status}
-                                                    </p>
+                                                <Switch
+                                                    checked={
+                                                        !!form.data
+                                                            .has_delivery_note
+                                                    }
+                                                    onCheckedChange={(v) =>
+                                                        form.setData(
+                                                            'has_delivery_note',
+                                                            !!v,
+                                                        )
+                                                    }
+                                                />
+                                            </SoftTile>
+
+                                            <div className="mt-4 grid grid-cols-1 gap-4">
+                                                <FormField label="Notes">
+                                                    <Textarea
+                                                        className={cn(
+                                                            fieldInputClass,
+                                                            'h-auto min-h-24 py-2',
+                                                        )}
+                                                        value={form.data.notes}
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'notes',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                    />
+                                                </FormField>
+                                                <FormField label="Terms">
+                                                    <Textarea
+                                                        className={cn(
+                                                            fieldInputClass,
+                                                            'h-auto min-h-24 py-2',
+                                                        )}
+                                                        value={form.data.terms}
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'terms',
+                                                                e.target.value,
+                                                            )
+                                                        }
+                                                    />
+                                                </FormField>
+                                            </div>
+                                        </Panel>
+                                    </motion.div>
+                                )}
+
+                                {step === 'items' && (
+                                    <motion.div
+                                        key="items"
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 10 }}
+                                        transition={{ duration: 0.22 }}
+                                    >
+                                        <Panel>
+                                            <div className="flex items-center justify-between gap-3">
+                                                <SectionTitle
+                                                    icon={Receipt}
+                                                    title="Line items"
+                                                />
+                                                <PillButton
+                                                    variant="soft"
+                                                    size="sm"
+                                                    onClick={addItem}
+                                                >
+                                                    <Plus className="h-4 w-4" />
+                                                    Add item
+                                                </PillButton>
+                                            </div>
+
+                                            <div className="space-y-3">
+                                                {form.data.items.map(
+                                                    (it, idx) => (
+                                                        <motion.div
+                                                            key={idx}
+                                                            initial={{
+                                                                opacity: 0,
+                                                                y: 10,
+                                                            }}
+                                                            animate={{
+                                                                opacity: 1,
+                                                                y: 0,
+                                                            }}
+                                                            transition={{
+                                                                duration: 0.18,
+                                                            }}
+                                                            className="rounded-2xl bg-muted/50 p-4 dark:bg-white/5"
+                                                        >
+                                                            <div className="flex items-start justify-between gap-2">
+                                                                <div className="text-sm font-semibold">
+                                                                    Item{' '}
+                                                                    {idx + 1}
+                                                                </div>
+                                                                <PillButton
+                                                                    variant="ghost"
+                                                                    size="sm"
+                                                                    onClick={() =>
+                                                                        removeItem(
+                                                                            idx,
+                                                                        )
+                                                                    }
+                                                                    aria-label={`Remove item ${idx + 1}`}
+                                                                >
+                                                                    <Trash2 className="h-4 w-4" />
+                                                                </PillButton>
+                                                            </div>
+
+                                                            <div className="mt-3 space-y-3">
+                                                                <FormField label="Description *">
+                                                                    <RequiredHand
+                                                                        show={
+                                                                            blockedField ===
+                                                                                'item_description' &&
+                                                                            idx ===
+                                                                                0
+                                                                        }
+                                                                        message="Describe what is being charged."
+                                                                    />
+                                                                    <Input
+                                                                        id={
+                                                                            idx ===
+                                                                            0
+                                                                                ? 'field-item_description'
+                                                                                : undefined
+                                                                        }
+                                                                        className={
+                                                                            fieldInputClass
+                                                                        }
+                                                                        value={
+                                                                            it.description
+                                                                        }
+                                                                        onChange={(
+                                                                            e,
+                                                                        ) =>
+                                                                            updateItem(
+                                                                                idx,
+                                                                                'description',
+                                                                                e
+                                                                                    .target
+                                                                                    .value,
+                                                                            )
+                                                                        }
+                                                                        required
+                                                                    />
+                                                                </FormField>
+
+                                                                <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
+                                                                    <FormField label="Qty *">
+                                                                        <Input
+                                                                            className={
+                                                                                fieldInputClass
+                                                                            }
+                                                                            type="number"
+                                                                            min={
+                                                                                0.01
+                                                                            }
+                                                                            step={
+                                                                                0.01
+                                                                            }
+                                                                            value={
+                                                                                it.quantity
+                                                                            }
+                                                                            onChange={(
+                                                                                e,
+                                                                            ) =>
+                                                                                updateItem(
+                                                                                    idx,
+                                                                                    'quantity',
+                                                                                    Number(
+                                                                                        e
+                                                                                            .target
+                                                                                            .value,
+                                                                                    ),
+                                                                                )
+                                                                            }
+                                                                        />
+                                                                    </FormField>
+
+                                                                    <FormField label="Unit price *">
+                                                                        <Input
+                                                                            className={
+                                                                                fieldInputClass
+                                                                            }
+                                                                            type="number"
+                                                                            min={
+                                                                                0
+                                                                            }
+                                                                            step={
+                                                                                0.01
+                                                                            }
+                                                                            value={
+                                                                                it.unit_price
+                                                                            }
+                                                                            onChange={(
+                                                                                e,
+                                                                            ) =>
+                                                                                updateItem(
+                                                                                    idx,
+                                                                                    'unit_price',
+                                                                                    Number(
+                                                                                        e
+                                                                                            .target
+                                                                                            .value,
+                                                                                    ),
+                                                                                )
+                                                                            }
+                                                                        />
+                                                                    </FormField>
+
+                                                                    <FormField label="Discount">
+                                                                        <Input
+                                                                            className={
+                                                                                fieldInputClass
+                                                                            }
+                                                                            type="number"
+                                                                            min={
+                                                                                0
+                                                                            }
+                                                                            step={
+                                                                                0.01
+                                                                            }
+                                                                            value={
+                                                                                it.discount
+                                                                            }
+                                                                            onChange={(
+                                                                                e,
+                                                                            ) =>
+                                                                                updateItem(
+                                                                                    idx,
+                                                                                    'discount',
+                                                                                    Number(
+                                                                                        e
+                                                                                            .target
+                                                                                            .value,
+                                                                                    ),
+                                                                                )
+                                                                            }
+                                                                        />
+                                                                    </FormField>
+                                                                </div>
+                                                            </div>
+                                                        </motion.div>
+                                                    ),
                                                 )}
                                             </div>
-                                        </div>
-                                    </div>
+                                        </Panel>
+                                    </motion.div>
+                                )}
 
-                                    <Separator className="my-6" />
+                                {step === 'review' && (
+                                    <motion.div
+                                        key="review"
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 10 }}
+                                        transition={{ duration: 0.22 }}
+                                    >
+                                        <Panel>
+                                            <SectionTitle
+                                                icon={CheckCircle2}
+                                                title="Review"
+                                            />
 
-                                    <div className="text-sm font-semibold">
-                                        Items
-                                    </div>
-                                    <div className="mt-3 rounded-2xl border">
-                                        <div className="grid grid-cols-12 gap-2 border-b bg-muted/40 px-4 py-3 text-xs font-semibold text-muted-foreground">
-                                            <div className="col-span-6">
-                                                Description
+                                            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                                <ReviewField
+                                                    label="Client"
+                                                    value={clientLabel(
+                                                        clients,
+                                                        form.data.client_id,
+                                                    )}
+                                                />
+                                                <ReviewField
+                                                    label="Template"
+                                                    value={templateLabel(
+                                                        templates,
+                                                        form.data
+                                                            .invoice_template_id,
+                                                    )}
+                                                />
+                                                <ReviewField
+                                                    label="Issue date"
+                                                    value={
+                                                        form.data.issue_date ||
+                                                        '—'
+                                                    }
+                                                />
+                                                <ReviewField
+                                                    label="Due date"
+                                                    value={
+                                                        form.data.due_date ||
+                                                        '—'
+                                                    }
+                                                />
+                                                <ReviewField
+                                                    label="Currency"
+                                                    value={
+                                                        form.data
+                                                            .currency_code ||
+                                                        'Not set'
+                                                    }
+                                                />
+                                                <ReviewField
+                                                    label="Delivery note"
+                                                    value={
+                                                        form.data
+                                                            .has_delivery_note
+                                                            ? 'Yes'
+                                                            : 'No'
+                                                    }
+                                                />
+                                                <ReviewField
+                                                    label="Tax rate"
+                                                    value={`${computed.taxPercent}%`}
+                                                />
+                                                <ReviewField
+                                                    label="Email to client"
+                                                    value={
+                                                        form.data.send_to_client
+                                                            ? (clientEmail ??
+                                                              'Yes')
+                                                            : 'No'
+                                                    }
+                                                />
                                             </div>
-                                            <div className="col-span-2 text-right">
-                                                Qty
-                                            </div>
-                                            <div className="col-span-2 text-right">
-                                                Price
-                                            </div>
-                                            <div className="col-span-2 text-right">
-                                                Line
-                                            </div>
-                                        </div>
 
-                                        <div className="divide-y">
-                                            {form.data.items.map((it, idx) => {
-                                                const qty = Number(
-                                                    it.quantity || 0,
-                                                );
-                                                const price = Number(
-                                                    it.unit_price || 0,
-                                                );
-                                                const disc = Number(
-                                                    it.discount || 0,
-                                                );
-                                                const tax = Number(it.tax || 0);
-                                                const base = qty * price;
-                                                const line = Math.max(
-                                                    0,
-                                                    base - disc + tax,
-                                                );
+                                            <div className="my-5 h-px bg-border/70 dark:bg-white/10" />
 
-                                                return (
-                                                    <div
-                                                        key={idx}
-                                                        className="grid grid-cols-12 gap-2 px-4 py-3 text-sm"
-                                                    >
-                                                        <div className="col-span-6 min-w-0">
-                                                            <div className="truncate font-medium">
-                                                                {it.description ||
-                                                                    '—'}
+                                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                                <FormField label="Overall discount">
+                                                    <RequiredHand
+                                                        show={
+                                                            blockedField ===
+                                                            'invoice_discount'
+                                                        }
+                                                        message="A discount cannot be negative."
+                                                    />
+                                                    <Input
+                                                        id="field-invoice_discount"
+                                                        className={
+                                                            fieldInputClass
+                                                        }
+                                                        type="number"
+                                                        min={0}
+                                                        step={0.01}
+                                                        value={
+                                                            form.data
+                                                                .invoice_discount
+                                                        }
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'invoice_discount',
+                                                                Number(
+                                                                    e.target
+                                                                        .value,
+                                                                ),
+                                                            )
+                                                        }
+                                                    />
+                                                </FormField>
+
+                                                <FormField label="Tax rate (%)">
+                                                    <Input
+                                                        className={
+                                                            fieldInputClass
+                                                        }
+                                                        type="number"
+                                                        min={0}
+                                                        max={100}
+                                                        step={0.01}
+                                                        value={
+                                                            form.data
+                                                                .tax_percent
+                                                        }
+                                                        onChange={(e) =>
+                                                            form.setData(
+                                                                'tax_percent',
+                                                                Number(
+                                                                    e.target
+                                                                        .value,
+                                                                ),
+                                                            )
+                                                        }
+                                                    />
+                                                    <p className="mt-1 text-xs text-muted-foreground">
+                                                        Item prices already
+                                                        include tax; this rate
+                                                        carves it out.
+                                                    </p>
+                                                    {form.errors
+                                                        .tax_percent && (
+                                                        <p className="mt-1 text-sm text-destructive">
+                                                            {
+                                                                form.errors
+                                                                    .tax_percent
+                                                            }
+                                                        </p>
+                                                    )}
+                                                </FormField>
+
+                                                <FormField label="Status">
+                                                    <div className="flex gap-2">
+                                                        <StatusPill
+                                                            active={
+                                                                form.data
+                                                                    .status ===
+                                                                'pending'
+                                                            }
+                                                            onClick={() =>
+                                                                form.setData(
+                                                                    'status',
+                                                                    'pending',
+                                                                )
+                                                            }
+                                                            label="Pending"
+                                                        />
+                                                        <StatusPill
+                                                            active={
+                                                                form.data
+                                                                    .status ===
+                                                                'paid'
+                                                            }
+                                                            onClick={() =>
+                                                                form.setData(
+                                                                    'status',
+                                                                    'paid',
+                                                                )
+                                                            }
+                                                            label="Paid"
+                                                        />
+                                                    </div>
+                                                    {/* keep Select for accessibility / form consistency */}
+                                                    <div className="hidden">
+                                                        <Select
+                                                            value={
+                                                                form.data.status
+                                                            }
+                                                            onValueChange={(
+                                                                v,
+                                                            ) =>
+                                                                form.setData(
+                                                                    'status',
+                                                                    v as InvoiceStatus,
+                                                                )
+                                                            }
+                                                        >
+                                                            <SelectTrigger />
+                                                            <SelectContent>
+                                                                <SelectItem value="pending">
+                                                                    Pending
+                                                                </SelectItem>
+                                                                <SelectItem value="paid">
+                                                                    Paid
+                                                                </SelectItem>
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                    {form.errors.status && (
+                                                        <p className="text-sm text-destructive">
+                                                            {form.errors.status}
+                                                        </p>
+                                                    )}
+                                                </FormField>
+                                            </div>
+
+                                            <div className="my-5 h-px bg-border/70 dark:bg-white/10" />
+
+                                            {/* Recurrence and delivery share a row on wide screens. */}
+                                            <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:gap-6">
+                                                <div className="min-w-0 flex-1">
+                                                    <PanelHeader
+                                                        icon={CalendarClock}
+                                                        title="Recurrence"
+                                                    />
+
+                                                    <SoftTile className="flex items-center justify-between gap-3">
+                                                        <div className="min-w-0">
+                                                            <div className="text-sm font-semibold">
+                                                                Recurring
+                                                                invoice
+                                                            </div>
+                                                            <div className="text-xs text-muted-foreground">
+                                                                Reissue this
+                                                                invoice on a
+                                                                schedule.
                                                             </div>
                                                         </div>
-                                                        <div className="col-span-2 text-right">
-                                                            {fmt(qty)}
+                                                        <Switch
+                                                            checked={
+                                                                !!form.data
+                                                                    .is_recurring
+                                                            }
+                                                            onCheckedChange={(
+                                                                v,
+                                                            ) =>
+                                                                form.setData(
+                                                                    'is_recurring',
+                                                                    !!v,
+                                                                )
+                                                            }
+                                                        />
+                                                    </SoftTile>
+
+                                                    {form.data.is_recurring && (
+                                                        <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                                                            <FormField
+                                                                label="Frequency *"
+                                                                className="sm:col-span-2"
+                                                            >
+                                                                <RequiredHand
+                                                                    show={
+                                                                        blockedField ===
+                                                                        'recurrence_frequency'
+                                                                    }
+                                                                    message="Choose how often to reissue."
+                                                                />
+                                                                <Select
+                                                                    value={
+                                                                        form
+                                                                            .data
+                                                                            .recurrence_frequency
+                                                                    }
+                                                                    onValueChange={(
+                                                                        v,
+                                                                    ) =>
+                                                                        form.setData(
+                                                                            'recurrence_frequency',
+                                                                            v,
+                                                                        )
+                                                                    }
+                                                                >
+                                                                    <SelectTrigger
+                                                                        id="field-recurrence_frequency"
+                                                                        className={
+                                                                            fieldInputClass
+                                                                        }
+                                                                    >
+                                                                        <SelectValue />
+                                                                    </SelectTrigger>
+                                                                    <SelectContent>
+                                                                        <SelectItem value="daily">
+                                                                            Daily
+                                                                        </SelectItem>
+                                                                        <SelectItem value="weekly">
+                                                                            Weekly
+                                                                        </SelectItem>
+                                                                        <SelectItem value="monthly">
+                                                                            Monthly
+                                                                        </SelectItem>
+                                                                        <SelectItem value="yearly">
+                                                                            Yearly
+                                                                        </SelectItem>
+                                                                    </SelectContent>
+                                                                </Select>
+                                                            </FormField>
+
+                                                            <FormField
+                                                                label="Interval *"
+                                                                className="sm:col-span-2"
+                                                            >
+                                                                <RequiredHand
+                                                                    show={
+                                                                        blockedField ===
+                                                                        'recurrence_interval'
+                                                                    }
+                                                                    message="Interval must be at least 1."
+                                                                />
+                                                                <Input
+                                                                    id="field-recurrence_interval"
+                                                                    className={
+                                                                        fieldInputClass
+                                                                    }
+                                                                    type="number"
+                                                                    min={1}
+                                                                    value={
+                                                                        form
+                                                                            .data
+                                                                            .recurrence_interval
+                                                                    }
+                                                                    onChange={(
+                                                                        e,
+                                                                    ) =>
+                                                                        form.setData(
+                                                                            'recurrence_interval',
+                                                                            Number(
+                                                                                e
+                                                                                    .target
+                                                                                    .value,
+                                                                            ),
+                                                                        )
+                                                                    }
+                                                                />
+                                                            </FormField>
+
+                                                            <FormField label="Start date">
+                                                                <Input
+                                                                    className={
+                                                                        fieldInputClass
+                                                                    }
+                                                                    type="date"
+                                                                    value={
+                                                                        form
+                                                                            .data
+                                                                            .recurrence_start_date
+                                                                    }
+                                                                    onChange={(
+                                                                        e,
+                                                                    ) =>
+                                                                        form.setData(
+                                                                            'recurrence_start_date',
+                                                                            e
+                                                                                .target
+                                                                                .value,
+                                                                        )
+                                                                    }
+                                                                />
+                                                            </FormField>
+
+                                                            <FormField label="End date">
+                                                                <Input
+                                                                    className={
+                                                                        fieldInputClass
+                                                                    }
+                                                                    type="date"
+                                                                    value={
+                                                                        form
+                                                                            .data
+                                                                            .recurrence_end_date
+                                                                    }
+                                                                    onChange={(
+                                                                        e,
+                                                                    ) =>
+                                                                        form.setData(
+                                                                            'recurrence_end_date',
+                                                                            e
+                                                                                .target
+                                                                                .value,
+                                                                        )
+                                                                    }
+                                                                />
+                                                            </FormField>
                                                         </div>
-                                                        <div className="col-span-2 text-right">
-                                                            {fmt(price)}
+                                                    )}
+                                                </div>
+
+                                                <div className="min-w-0 flex-1">
+                                                    <PanelHeader
+                                                        icon={Mail}
+                                                        title="Email to client"
+                                                        action={
+                                                            selectedClient ? (
+                                                                <EditClientDialog
+                                                                    client={
+                                                                        selectedClient
+                                                                    }
+                                                                    documentLabel="invoice"
+                                                                />
+                                                            ) : null
+                                                        }
+                                                    />
+
+                                                    <RequiredHand
+                                                        show={
+                                                            blockedField ===
+                                                            'send_to_client'
+                                                        }
+                                                        message="This client has no email address yet."
+                                                    />
+
+                                                    <SoftTile
+                                                        id="field-send_to_client"
+                                                        className="flex items-center justify-between gap-3"
+                                                    >
+                                                        <div className="min-w-0">
+                                                            <div className="text-sm font-semibold">
+                                                                Send on create
+                                                            </div>
+                                                            <div className="truncate text-xs text-muted-foreground">
+                                                                {clientEmail ??
+                                                                    (selectedClient
+                                                                        ? 'No email address on file'
+                                                                        : 'Select a client first')}
+                                                            </div>
                                                         </div>
-                                                        <div className="col-span-2 text-right font-semibold">
-                                                            {fmt(line)}
+                                                        <Switch
+                                                            checked={
+                                                                !!form.data
+                                                                    .send_to_client
+                                                            }
+                                                            disabled={
+                                                                !clientEmail
+                                                            }
+                                                            onCheckedChange={(
+                                                                v,
+                                                            ) =>
+                                                                form.setData(
+                                                                    'send_to_client',
+                                                                    !!v,
+                                                                )
+                                                            }
+                                                        />
+                                                    </SoftTile>
+
+                                                    {selectedClient &&
+                                                    !clientEmail ? (
+                                                        <p className="mt-2 text-xs text-muted-foreground">
+                                                            {
+                                                                selectedClient.name
+                                                            }{' '}
+                                                            has no email
+                                                            address, so this
+                                                            invoice cannot be
+                                                            sent. Use Edit
+                                                            client to add one
+                                                            without leaving this
+                                                            page.
+                                                        </p>
+                                                    ) : null}
+
+                                                    {form.errors
+                                                        .send_to_client && (
+                                                        <p className="mt-2 text-xs text-destructive">
+                                                            {
+                                                                form.errors
+                                                                    .send_to_client
+                                                            }
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            <div className="my-5 h-px bg-border/70 dark:bg-white/10" />
+
+                                            <div className="text-sm font-semibold">
+                                                Items
+                                            </div>
+                                            <div className="-mx-1 mt-3 overflow-x-auto px-1">
+                                                <table className="w-full min-w-[30rem] border-separate border-spacing-y-1.5 text-sm">
+                                                    <thead>
+                                                        <tr className="text-left text-xs text-muted-foreground">
+                                                            <th className="px-3 pb-1 font-medium">
+                                                                Description
+                                                            </th>
+                                                            <th className="px-3 pb-1 text-right font-medium">
+                                                                Qty
+                                                            </th>
+                                                            <th className="px-3 pb-1 text-right font-medium">
+                                                                Price
+                                                            </th>
+                                                            <th className="px-3 pb-1 text-right font-medium">
+                                                                Line
+                                                            </th>
+                                                        </tr>
+                                                    </thead>
+
+                                                    <tbody>
+                                                        {form.data.items.map(
+                                                            (it, idx) => {
+                                                                const qty =
+                                                                    Number(
+                                                                        it.quantity ||
+                                                                            0,
+                                                                    );
+                                                                const price =
+                                                                    Number(
+                                                                        it.unit_price ||
+                                                                            0,
+                                                                    );
+                                                                const disc =
+                                                                    Number(
+                                                                        it.discount ||
+                                                                            0,
+                                                                    );
+                                                                const line =
+                                                                    Math.max(
+                                                                        0,
+                                                                        qty *
+                                                                            price -
+                                                                            disc,
+                                                                    );
+
+                                                                return (
+                                                                    <tr
+                                                                        key={
+                                                                            idx
+                                                                        }
+                                                                        className="group"
+                                                                    >
+                                                                        <td
+                                                                            className={cn(
+                                                                                reviewCellClass,
+                                                                                'rounded-l-2xl',
+                                                                            )}
+                                                                        >
+                                                                            <div className="truncate font-medium">
+                                                                                {it.description ||
+                                                                                    '—'}
+                                                                            </div>
+                                                                        </td>
+                                                                        <td
+                                                                            className={cn(
+                                                                                reviewCellClass,
+                                                                                'text-right tabular-nums',
+                                                                            )}
+                                                                        >
+                                                                            {fmt(
+                                                                                qty,
+                                                                            )}
+                                                                        </td>
+                                                                        <td
+                                                                            className={cn(
+                                                                                reviewCellClass,
+                                                                                'text-right tabular-nums',
+                                                                            )}
+                                                                        >
+                                                                            {fmt(
+                                                                                price,
+                                                                            )}
+                                                                        </td>
+                                                                        <td
+                                                                            className={cn(
+                                                                                reviewCellClass,
+                                                                                'rounded-r-2xl text-right font-semibold tabular-nums',
+                                                                            )}
+                                                                        >
+                                                                            {fmt(
+                                                                                line,
+                                                                            )}
+                                                                        </td>
+                                                                    </tr>
+                                                                );
+                                                            },
+                                                        )}
+                                                    </tbody>
+                                                </table>
+                                            </div>
+                                        </Panel>
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
+                        </div>
+
+                        {/* ============ Sidebar ============ */}
+                        <div className="lg:col-span-4">
+                            <div className="flex flex-col gap-4 lg:sticky lg:top-4 lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto lg:pb-1">
+                                {/* Navigation */}
+                                <Panel>
+                                    <div className="flex items-center gap-2">
+                                        <PillButton
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={goBack}
+                                            disabled={
+                                                step === 'details' ||
+                                                form.processing
+                                            }
+                                            className="flex-1"
+                                        >
+                                            <ArrowLeft className="h-4 w-4" />
+                                            Back
+                                        </PillButton>
+
+                                        {step !== 'review' ? (
+                                            <PillButton
+                                                size="sm"
+                                                onClick={goNext}
+                                                disabled={
+                                                    form.processing ||
+                                                    !canCreateInvoice
+                                                }
+                                                className="flex-1"
+                                            >
+                                                Next
+                                                <ArrowRight className="h-4 w-4" />
+                                            </PillButton>
+                                        ) : (
+                                            <PillButton
+                                                size="sm"
+                                                onClick={submit}
+                                                disabled={
+                                                    form.processing ||
+                                                    !canCreateInvoice
+                                                }
+                                                className="flex-1"
+                                            >
+                                                {form.processing ? (
+                                                    <>
+                                                        <NiloSpinner
+                                                            size={16}
+                                                        />
+                                                        Creating…
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        Create invoice
+                                                        <CheckCircle2 className="h-4 w-4" />
+                                                    </>
+                                                )}
+                                            </PillButton>
+                                        )}
+                                    </div>
+
+                                    <PillButton
+                                        variant="soft"
+                                        size="sm"
+                                        onClick={openPreview}
+                                        disabled={
+                                            !canCreateInvoice || previewLoading
+                                        }
+                                        className="mt-2 w-full"
+                                    >
+                                        {previewLoading ? (
+                                            <>
+                                                <NiloSpinner size={16} />
+                                                Building preview…
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Eye className="h-4 w-4" />
+                                                Preview invoice
+                                            </>
+                                        )}
+                                    </PillButton>
+                                </Panel>
+
+                                {/* Steps */}
+                                <Panel>
+                                    <PanelHeader
+                                        icon={ClipboardList}
+                                        title="Steps"
+                                        subtitle={`Step ${order.indexOf(step) + 1} of ${order.length}`}
+                                    />
+
+                                    <div className="flex flex-col gap-2">
+                                        {steps.map((s) => {
+                                            const Icon = s.icon;
+                                            const active = s.key === step;
+                                            const cur = order.indexOf(step);
+                                            const target = order.indexOf(s.key);
+                                            const done = target < cur;
+
+                                            return (
+                                                <button
+                                                    key={s.key}
+                                                    type="button"
+                                                    onClick={() => {
+                                                        // back freely
+                                                        if (target <= cur)
+                                                            return setStep(
+                                                                s.key,
+                                                            );
+                                                        // forward requires current step valid
+                                                        if (!validateStep(step))
+                                                            return;
+                                                        setStep(s.key);
+                                                    }}
+                                                    className={cn(
+                                                        'rounded-2xl p-3 text-left transition',
+                                                        active
+                                                            ? 'bg-brand-50 dark:bg-brand-500/15'
+                                                            : 'bg-muted/50 hover:bg-muted dark:bg-white/5 dark:hover:bg-white/10',
+                                                    )}
+                                                >
+                                                    <div className="flex items-center gap-3">
+                                                        <span
+                                                            className={cn(
+                                                                'grid h-8 w-8 shrink-0 place-items-center rounded-xl',
+                                                                done || active
+                                                                    ? 'bg-brand text-brand-foreground'
+                                                                    : 'bg-muted text-muted-foreground dark:bg-white/10',
+                                                            )}
+                                                        >
+                                                            {done ? (
+                                                                <CheckCircle2 className="h-4 w-4" />
+                                                            ) : (
+                                                                <Icon className="h-4 w-4" />
+                                                            )}
+                                                        </span>
+
+                                                        <div className="min-w-0">
+                                                            <div
+                                                                className={cn(
+                                                                    'text-sm font-semibold',
+                                                                    active &&
+                                                                        'text-brand-700 dark:text-brand-200',
+                                                                )}
+                                                            >
+                                                                {s.title}
+                                                            </div>
+                                                            <div className="truncate text-xs text-muted-foreground">
+                                                                {s.description}
+                                                            </div>
                                                         </div>
                                                     </div>
-                                                );
-                                            })}
-                                        </div>
+                                                </button>
+                                            );
+                                        })}
                                     </div>
-                                </Card>
+                                </Panel>
 
-                                <Card className="rounded-2xl border bg-background p-6 shadow-sm lg:col-span-4">
-                                    <div className="flex items-center justify-between">
-                                        <SectionTitle
-                                            icon={BadgePercent}
-                                            title="Final totals"
-                                        />
-                                        <Button
-                                            type="button"
-                                            variant="outline"
-                                            onClick={openPreview}
-                                            disabled={!canCreateInvoice}
-                                            className="gap-2 rounded-xl"
-                                        >
-                                            <Eye className="h-4 w-4" />
-                                            Preview
-                                        </Button>
-                                    </div>
+                                {/* Totals */}
+                                <Panel>
+                                    <PanelHeader
+                                        icon={BadgePercent}
+                                        title="Totals"
+                                        subtitle={
+                                            form.data.currency_code ||
+                                            'No currency yet'
+                                        }
+                                    />
 
-                                    <div className="mt-4 space-y-2 rounded-2xl border bg-muted/20 p-4">
+                                    <SoftTile className="space-y-2 p-4">
                                         <Row
-                                            label="Subtotal"
-                                            value={computed.subtotal}
+                                            label="Items (incl. tax)"
+                                            value={computed.itemsGross}
                                             precision={precision}
                                         />
                                         <Row
@@ -1497,51 +1999,73 @@ export default function InvoicesCreate({
                                             value={computed.invoiceDiscount}
                                             precision={precision}
                                         />
+
+                                        <div className="my-2 h-px bg-border/70 dark:bg-white/10" />
+
                                         <Row
-                                            label="Tax"
+                                            label="Subtotal (excl. tax)"
+                                            value={computed.subtotal}
+                                            precision={precision}
+                                        />
+                                        <Row
+                                            label={`Tax (${computed.taxPercent}%)`}
                                             value={computed.tax}
                                             precision={precision}
                                         />
-                                        <Separator className="my-2" />
+
+                                        <div className="my-2 h-px bg-border/70 dark:bg-white/10" />
+
                                         <Row
-                                            label="Total"
+                                            label="Total (incl. tax)"
                                             value={computed.total}
                                             precision={precision}
                                             strong
                                         />
-                                    </div>
-
-                                    <Button
-                                        type="button"
-                                        onClick={submit}
-                                        disabled={form.processing || !canCreateInvoice}
-                                        className="mt-4 w-full gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                                    >
-                                        Create invoice
-                                        <CheckCircle2 className="h-4 w-4" />
-                                    </Button>
-                                </Card>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
+                                    </SoftTile>
+                                </Panel>
+                            </div>
+                        </div>
+                    </div>
                 </form>
-            </motion.div>
+            </div>
 
             {/* ✅ Preview Modal */}
             <Dialog open={previewOpen} onOpenChange={setPreviewOpen}>
-                <DialogContent className="max-w-6xl rounded-2xl p-0">
+                <DialogContent className="rounded-2xl p-0 sm:max-w-[min(880px,calc(100vw-2rem))]">
                     <DialogHeader className="px-5 pt-5">
                         <DialogTitle className="flex items-center gap-2">
                             <Eye className="h-5 w-5 opacity-80" />
                             Invoice preview
                         </DialogTitle>
+                        <DialogDescription>
+                            Shown at A4 ({Math.round(previewScale * 100)}% of
+                            print size) — exactly what the PDF will contain.
+                        </DialogDescription>
                     </DialogHeader>
-                    <div className="h-[78vh] px-5 pb-5">
-                        <iframe
-                            title="Invoice preview"
-                            className="h-full w-full rounded-2xl border bg-white"
-                            srcDoc={previewHtml}
-                        />
+                    <div className="max-h-[74vh] overflow-auto px-5 pb-5">
+                        <div ref={previewStageRef} className="w-full">
+                            <div
+                                className="mx-auto overflow-hidden rounded-lg border bg-white shadow-sm"
+                                style={{
+                                    width: A4_WIDTH_PX * previewScale,
+                                    height: previewPageHeight * previewScale,
+                                }}
+                            >
+                                <iframe
+                                    ref={previewFrameRef}
+                                    title="Invoice preview"
+                                    className="block border-0 bg-white"
+                                    srcDoc={previewHtml}
+                                    onLoad={measurePreviewHeight}
+                                    style={{
+                                        width: A4_WIDTH_PX,
+                                        height: previewPageHeight,
+                                        transform: `scale(${previewScale})`,
+                                        transformOrigin: 'top left',
+                                    }}
+                                />
+                            </div>
+                        </div>
                     </div>
                 </DialogContent>
             </Dialog>
@@ -1551,54 +2075,18 @@ export default function InvoicesCreate({
 
 /* ---------- UI helpers ---------- */
 
+/** Rows read as tinted tiles rather than ruled lines, matching the panels. */
+const reviewCellClass = cn(
+    'bg-muted/40 px-3 py-3 align-middle transition dark:bg-white/5',
+    'group-hover:bg-brand-50/70 dark:group-hover:bg-brand-500/10',
+);
+
+/**
+ * The wizard's label/value shapes. Each is a thin arrangement over a shared
+ * primitive, so the builder wears the same surfaces as the rest of the app.
+ */
 function SectionTitle({ icon: Icon, title }: { icon: any; title: string }) {
-    return (
-        <div className="flex items-center gap-2">
-            <Icon className="h-5 w-5 opacity-80" />
-            <div className="text-sm font-semibold">{title}</div>
-        </div>
-    );
-}
-
-function Field({
-    label,
-    children,
-    className,
-}: {
-    label: string;
-    children: React.ReactNode;
-    className?: string;
-}) {
-    return (
-        <div className={cn('space-y-2', className)}>
-            <Label>{label}</Label>
-            {children}
-        </div>
-    );
-}
-
-function MiniStat({
-    label,
-    value,
-    strong,
-}: {
-    label: string;
-    value: string;
-    strong?: boolean;
-}) {
-    return (
-        <div className="rounded-xl border bg-background p-3">
-            <div className="text-[11px] text-muted-foreground">{label}</div>
-            <div
-                className={cn(
-                    'mt-1 text-sm font-semibold',
-                    strong && 'text-base',
-                )}
-            >
-                {value}
-            </div>
-        </div>
-    );
+    return <PanelHeader icon={Icon} title={title} />;
 }
 
 function Row({
@@ -1613,25 +2101,20 @@ function Row({
     strong?: boolean;
 }) {
     return (
-        <div className="flex items-center justify-between">
-            <span className="text-xs text-muted-foreground">{label}</span>
-            <span
-                className={cn('text-sm', strong && 'text-base font-semibold')}
-            >
-                {Number.isFinite(value)
-                    ? value.toFixed(precision)
-                    : (0).toFixed(precision)}
-            </span>
-        </div>
+        <TotalRow
+            label={label}
+            value={(Number.isFinite(value) ? value : 0).toFixed(precision)}
+            strong={strong}
+        />
     );
 }
 
 function ReviewField({ label, value }: { label: string; value: string }) {
     return (
-        <div className="rounded-2xl border p-4">
+        <SoftTile>
             <div className="text-xs text-muted-foreground">{label}</div>
             <div className="mt-1 text-sm font-semibold capitalize">{value}</div>
-        </div>
+        </SoftTile>
     );
 }
 
@@ -1645,18 +2128,9 @@ function StatusPill({
     label: string;
 }) {
     return (
-        <button
-            type="button"
-            onClick={onClick}
-            className={cn(
-                'rounded-full border px-3 py-2 text-xs font-semibold transition',
-                active
-                    ? 'border-foreground bg-foreground text-background'
-                    : 'bg-background hover:bg-muted/40',
-            )}
-        >
+        <Chip active={active} onClick={onClick}>
             {label}
-        </button>
+        </Chip>
     );
 }
 

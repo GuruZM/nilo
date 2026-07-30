@@ -13,8 +13,9 @@
         "barryvdh/laravel-dompdf": "^3.1",
         "inertiajs/inertia-laravel": "^2.0",
         "laravel/cashier": "^15.7",
-        "laravel/fortify": "^1.30",
+        "laravel/fortify": "^1.37",
         "laravel/framework": "^12.0",
+        "laravel/socialite": "^5.28",
         "laravel/tinker": "^2.10.1",
         "spatie/laravel-permission": "^6.21"
     },

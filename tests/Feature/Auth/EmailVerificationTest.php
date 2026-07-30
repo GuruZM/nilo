@@ -1,9 +1,20 @@
 <?php
 
 use App\Models\User;
+use App\Notifications\WelcomeEmail;
 use Illuminate\Auth\Events\Verified;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\URL;
+
+function verificationUrlFor(User $user): string
+{
+    return URL::temporarySignedRoute(
+        'verification.verify',
+        now()->addMinutes(60),
+        ['id' => $user->id, 'hash' => sha1($user->email)]
+    );
+}
 
 test('email verification screen can be rendered', function () {
     $user = User::factory()->unverified()->create();
@@ -89,4 +100,33 @@ test('already verified user visiting verification link is redirected without fir
 
     expect($user->fresh()->hasVerifiedEmail())->toBeTrue();
     Event::assertNotDispatched(Verified::class);
+});
+
+test('verifying email flashes a welcome message for the toast', function () {
+    $user = User::factory()->unverified()->create();
+
+    $this->actingAs($user)->get(verificationUrlFor($user))
+        ->assertSessionHas('success', 'Welcome to '.config('app.name').'! Your email has been verified.');
+});
+
+test('verifying email sends the welcome notification', function () {
+    Notification::fake();
+
+    $user = User::factory()->unverified()->create();
+
+    $this->actingAs($user)->get(verificationUrlFor($user));
+
+    Notification::assertSentTo($user, WelcomeEmail::class);
+});
+
+test('already verified user visiting verification link does not receive another welcome email', function () {
+    Notification::fake();
+
+    $user = User::factory()->create([
+        'email_verified_at' => now(),
+    ]);
+
+    $this->actingAs($user)->get(verificationUrlFor($user));
+
+    Notification::assertNothingSent();
 });

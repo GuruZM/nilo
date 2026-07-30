@@ -34,7 +34,7 @@ it('hides the existing logo preview when the edit modal marks the logo for remov
     $page = file_get_contents(__DIR__.'/../../resources/js/pages/Companies/Index.tsx');
 
     expect($page)
-        ->toContain('const showExistingLogo = ! form.data.remove_logo;')
+        ->toContain('const showExistingLogo = !form.data.remove_logo;')
         ->toContain('showExistingLogo ? existingLogoUrl : null')
         ->toContain("if (form.data.logo) {\n                                    form.setData('logo', null);")
         ->toContain("form.setData('remove_logo', true);");

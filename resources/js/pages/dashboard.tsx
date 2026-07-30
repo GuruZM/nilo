@@ -1,18 +1,20 @@
 // resources/js/Pages/Dashboard.tsx
 import { Head, Link, usePage } from '@inertiajs/react';
 import {
+    AlertTriangle,
     CalendarDays,
-    CheckCircle2,
+    ChevronLeft,
+    ChevronRight,
     Clock3,
-    FileText,
-    Search,
+    PieChart as PieChartIcon,
     TrendingUp,
     Users,
+    Wallet,
 } from 'lucide-react';
 import * as React from 'react';
 import {
-    Bar,
-    BarChart,
+    Area,
+    AreaChart,
     CartesianGrid,
     Cell,
     Legend,
@@ -29,11 +31,34 @@ import {
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
 import { type BreadcrumbItem } from '@/types/index.d';
+import { toast } from 'sonner';
 
-// shadcn
-import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+
+import {
+    Chip,
+    IconButton,
+    InitialsAvatar,
+    Panel,
+    PanelHeader,
+    pillButtonClass,
+    Ring,
+    SoftTile,
+    StatTile,
+    StatusPill,
+} from '@/components/dashboard/primitives';
+import { FxNote, type FxMeta } from '@/components/fx-note';
+import {
+    formatMoneyText,
+    useActiveCurrency,
+    useMoney,
+} from '@/components/money';
 import { cn } from '@/lib/utils';
 
 type DashboardStats = {
@@ -51,8 +76,6 @@ type DashboardStats = {
 
     currency_code?: string | null;
     precision?: number | null;
-
-    as_of?: string;
 };
 
 type Charts = {
@@ -66,11 +89,12 @@ type Charts = {
         paid: number[];
         pending: number[];
     };
-    aging: {
-        overdue: { count: number; amount: number };
-        due_in_7_days: { count: number; amount: number };
-        due_later: { count: number; amount: number };
-        no_due_date: { count: number; amount: number };
+    stat_series: {
+        labels: string[];
+        paid: number[];
+        pending: number[];
+        overdue: number[];
+        clients: number[];
     };
 };
 
@@ -84,17 +108,6 @@ type CalendarEvent = {
     url: string;
 };
 
-type RecentInvoice = {
-    id: number;
-    number: string | null;
-    issue_date: string;
-    due_date?: string | null;
-    total: number;
-    status: 'paid' | 'pending' | string;
-    currency_code: string;
-    client?: { name: string } | null;
-};
-
 type TopClient = {
     client_id: number;
     name: string;
@@ -105,36 +118,115 @@ const breadcrumbs: BreadcrumbItem[] = [
     { title: 'Dashboard', href: dashboard().url },
 ];
 
-const PIE_COLORS = ['#0ea5e9', '#f59e0b'];
+// Paid = deep brand blue, Pending = light brand blue (matches the hero palette)
+const PIE_COLORS = ['#00417d', '#7fadd8'];
+const CHART_PAID = '#00417d';
+const CHART_PENDING = '#7fadd8';
+const STAT_AMBER = '#d97706';
+const STAT_ROSE = '#e11d48';
+
+/** Softened recharts tooltip so it matches the borderless card language. */
+const TOOLTIP_STYLE = {
+    borderRadius: 14,
+    border: 'none',
+    boxShadow: '0 12px 32px -12px rgb(16 24 40 / 0.24)',
+    fontSize: 12,
+    padding: '8px 12px',
+} as const;
+
+const LEGEND_STYLE = { fontSize: 11 } as const;
+
+const MONTH_NAMES = [
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
+];
+
+function monthLabel(year: number, month: number): string {
+    return `${MONTH_NAMES[month - 1] ?? ''} ${year}`;
+}
+
+/**
+ * Calendar cells are only ~40px wide once the dashboard is pinned to one
+ * viewport, so amounts are abbreviated and the currency code is dropped.
+ */
+function compactAmount(n: number): string {
+    if (!Number.isFinite(n)) {
+        return '0';
+    }
+    if (Math.abs(n) >= 1_000_000) {
+        return `${(n / 1_000_000).toFixed(1)}m`;
+    }
+    if (Math.abs(n) >= 1_000) {
+        return `${(n / 1_000).toFixed(1)}k`;
+    }
+    return String(Math.round(n));
+}
 
 export default function Dashboard() {
-    const { company, stats, charts, calendar, recent_invoices, top_clients } =
-        usePage().props as any as {
+    const page = usePage() as any;
+    const { company, stats, charts, calendar, top_clients, fx } =
+        page.props as any as {
             company: { id: number; name: string } | null;
             stats: DashboardStats | null;
             charts: Charts | null;
             calendar: CalendarEvent[];
-            recent_invoices: RecentInvoice[];
             top_clients: TopClient[];
+            fx: FxMeta | null;
         };
+
+    // Show the welcome toast after a user verifies their email.
+    React.useEffect(() => {
+        const success = page.props?.flash?.success;
+
+        if (success) {
+            toast.success(success);
+        }
+    }, [page.props?.flash?.success]);
 
     // ---------------------------
     // Currency + formatting
     // ---------------------------
-    const baseCurrency = stats?.currency_code ?? 'ZMW';
+    /**
+     * The server states which currency it converted the figures into. With no
+     * company yet there are no figures to convert, so fall back to the currency
+     * the user picked in the switcher rather than to a hardcoded default.
+     */
+    const activeCurrency = useActiveCurrency();
+
+    const baseCurrency = stats?.currency_code ?? activeCurrency.code;
     const precision = Number.isFinite(Number(stats?.precision))
         ? Number(stats?.precision)
-        : 2;
+        : Number.isFinite(Number(activeCurrency.precision))
+          ? Number(activeCurrency.precision)
+          : 2;
 
-    const money = React.useCallback(
-        (n: number, code?: string) =>
-            `${code ?? baseCurrency} ${
-                Number.isFinite(n)
-                    ? n.toFixed(precision)
-                    : (0).toFixed(precision)
-            }`,
+    const currency = React.useMemo(
+        () => ({ code: baseCurrency, precision }),
         [baseCurrency, precision],
     );
+
+    /**
+     * Plain string form, for chart internals (tooltips) that render into SVG
+     * and cannot take markup.
+     */
+    const moneyText = React.useCallback(
+        (n: number, code?: string) =>
+            formatMoneyText(n, { ...currency, code: code ?? currency.code }),
+        [currency],
+    );
+
+    /** Markup form — figure plus superscript currency code. */
+    const money = useMoney(currency);
 
     // ---------------------------
     // Charts prep
@@ -157,101 +249,14 @@ export default function Dashboard() {
         }));
     }, [charts?.monthly_trend]);
 
-    const agingBars = React.useMemo(() => {
-        const a = charts?.aging;
-        if (!a) return [];
-        return [
-            {
-                name: 'Overdue',
-                amount: a.overdue.amount,
-                count: a.overdue.count,
-            },
-            {
-                name: 'Due ≤7d',
-                amount: a.due_in_7_days.amount,
-                count: a.due_in_7_days.count,
-            },
-            {
-                name: 'Due later',
-                amount: a.due_later.amount,
-                count: a.due_later.count,
-            },
-            {
-                name: 'No due',
-                amount: a.no_due_date.amount,
-                count: a.no_due_date.count,
-            },
-        ];
-    }, [charts?.aging]);
-
     // ---------------------------
-    // Recent table filtering + search + sorting
+    // Calendar month grid + drawer
     // ---------------------------
-    const [tableFilter, setTableFilter] = React.useState<
-        'all' | 'paid' | 'pending' | 'overdue'
-    >('all');
-
-    const [query, setQuery] = React.useState('');
-    const [sortKey, setSortKey] = React.useState<
-        'due_date' | 'total' | 'status'
-    >('due_date');
-    const [sortDir, setSortDir] = React.useState<'asc' | 'desc'>('asc');
-
     const todayIso = React.useMemo(
         () => new Date().toISOString().slice(0, 10),
         [],
     );
 
-    const filteredRecent = React.useMemo(() => {
-        const list = recent_invoices ?? [];
-
-        const byStatus =
-            tableFilter === 'all'
-                ? list
-                : tableFilter === 'overdue'
-                  ? list.filter(
-                        (i) =>
-                            i.status === 'pending' &&
-                            !!i.due_date &&
-                            i.due_date < todayIso,
-                    )
-                  : list.filter((i) => i.status === tableFilter);
-
-        const q = query.trim().toLowerCase();
-        const byQuery = !q
-            ? byStatus
-            : byStatus.filter((inv) => {
-                  const num = (inv.number ?? `#${inv.id}`).toLowerCase();
-                  const client = (inv.client?.name ?? '').toLowerCase();
-                  return num.includes(q) || client.includes(q);
-              });
-
-        const sorted = [...byQuery].sort((a, b) => {
-            const dir = sortDir === 'asc' ? 1 : -1;
-
-            if (sortKey === 'total') {
-                return (a.total - b.total) * dir;
-            }
-
-            if (sortKey === 'status') {
-                // pending before paid (asc)
-                const av = a.status === 'pending' ? 0 : 1;
-                const bv = b.status === 'pending' ? 0 : 1;
-                return (av - bv) * dir;
-            }
-
-            // due_date
-            const ad = a.due_date ?? '9999-12-31';
-            const bd = b.due_date ?? '9999-12-31';
-            return ad.localeCompare(bd) * dir;
-        });
-
-        return sorted;
-    }, [recent_invoices, tableFilter, query, sortKey, sortDir, todayIso]);
-
-    // ---------------------------
-    // Calendar month grid + drawer
-    // ---------------------------
     const monthKey = (d: Date) =>
         `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
@@ -300,25 +305,6 @@ export default function Dashboard() {
         return map;
     }, [calendar]);
 
-    const monthSummary = React.useMemo(() => {
-        const [y, m] = calMonth.split('-').map(Number);
-        const start = new Date(y, m - 1, 1).toISOString().slice(0, 10);
-        const end = new Date(y, m, 0).toISOString().slice(0, 10);
-
-        let pendingDue = 0;
-
-        (calendar ?? []).forEach((ev) => {
-            if (ev.date >= start && ev.date <= end && ev.status === 'pending') {
-                pendingDue += ev.amount ?? 0;
-            }
-        });
-
-        return {
-            pendingDue,
-            overdueInMonth: stats?.overdue_revenue ?? 0,
-        };
-    }, [calMonth, calendar, stats?.overdue_revenue]);
-
     const goMonth = (dir: -1 | 1) => {
         const [y, m] = calMonth.split('-').map(Number);
         const d = new Date(y, m - 1, 1);
@@ -332,67 +318,63 @@ export default function Dashboard() {
         return eventsByDate.get(selectedDay) ?? [];
     }, [selectedDay, eventsByDate]);
 
-    // ---------------------------
-    // Layout: strict heights for consistency
-    // ---------------------------
-    // Main grid rows: do not allow cards to stretch unpredictably.
-    // We enforce "h-full" on card wrappers and fixed inner chart/table heights.
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
             <Head title="Dashboard" />
 
-            <div className="mx-auto w-full px-4 py-8 sm:px-6">
-                <DashboardHeader company={company} stats={stats} />
+            {/*
+                At lg+ the whole dashboard is pinned to one viewport height so
+                nothing scrolls. The chrome above is fixed at 88px: 16px of
+                AppContent margin plus the 72px header (mt-2 + h-16). py-6 is
+                inside this box, not added to it. Below lg this falls back to
+                normal document flow and the page scrolls as usual.
+             */}
+            <div className="flex w-full flex-col gap-4 py-3 lg:h-[calc(100svh-88px)] lg:overflow-hidden">
+                <DashboardHeader company={company} />
 
-                <StatsGrid stats={stats} money={money} />
+                <StatsGrid
+                    stats={stats}
+                    money={money}
+                    statSeries={charts?.stat_series}
+                />
 
-                <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
-                    <div className="space-y-6 lg:col-span-7">
+                <FxNote fx={fx} />
+
+                <div className="grid grid-cols-1 gap-4 lg:min-h-0 lg:flex-1 lg:grid-cols-12">
+                    <div className="flex flex-col gap-4 lg:col-span-7 lg:min-h-0">
                         <PaidPendingCard
                             paidPendingPie={paidPendingPie}
                             stats={stats}
                             money={money}
+                            moneyText={moneyText}
                         />
 
                         <MonthlyTrendCard
                             monthlyTrend={monthlyTrend}
+                            moneyText={moneyText}
+                        />
+                    </div>
+
+                    {/*
+                        Top clients takes a fixed slice off the top and scrolls
+                        internally; the calendar claims whatever height is left.
+                     */}
+                    <div className="flex flex-col gap-4 lg:col-span-5 lg:min-h-0 lg:gap-3">
+                        <TopClientsCard
+                            topClients={top_clients ?? []}
                             money={money}
                         />
 
-                        <AgingBucketsCard agingBars={agingBars} money={money} />
-                    </div>
-
-                    <div className="space-y-6 lg:col-span-5">
                         <CalendarCard
                             calMonth={calMonth}
                             goMonth={goMonth}
-                            monthSummary={monthSummary}
                             monthDays={monthDays}
                             eventsByDate={eventsByDate}
                             selectedDay={selectedDay}
                             setSelectedDay={setSelectedDay}
                             selectedEvents={selectedEvents}
                             money={money}
-                            baseCurrency={baseCurrency}
                             todayIso={todayIso}
-                        />
-
-                        <RecentInvoicesCard
-                            invoices={filteredRecent}
-                            tableFilter={tableFilter}
-                            setTableFilter={setTableFilter}
-                            query={query}
-                            setQuery={setQuery}
-                            sortKey={sortKey}
-                            setSortKey={setSortKey}
-                            sortDir={sortDir}
-                            setSortDir={setSortDir}
-                            money={money}
-                        />
-
-                        <TopClientsCard
-                            topClients={top_clients ?? []}
-                            money={money}
                         />
                     </div>
                 </div>
@@ -406,49 +388,30 @@ export default function Dashboard() {
 ------------------------------------------ */
 function DashboardHeader({
     company,
-    stats,
 }: {
     company: { id: number; name: string } | null;
-    stats: DashboardStats | null;
 }) {
     return (
-        <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-            <div className="flex items-start gap-3">
-                <div className="grid h-11 w-11 place-items-center rounded-2xl bg-muted">
-                    <TrendingUp className="h-6 w-6 text-foreground/80" />
-                </div>
-                <div>
-                    <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-                        Dashboard
-                    </h1>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                        {company ? (
-                            <>
-                                Company:{' '}
-                                <span className="font-medium text-foreground">
-                                    {company.name}
-                                </span>
-                                {stats?.as_of ? (
-                                    <span className="text-muted-foreground">
-                                        {' '}
-                                        • As of {stats.as_of}
-                                    </span>
-                                ) : null}
-                            </>
-                        ) : (
-                            'No active company selected.'
-                        )}
-                    </p>
-                </div>
+        // The page title lives in the breadcrumb up in the app header, so it is
+        // deliberately not repeated here.
+        <div className="flex shrink-0 flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h1 className="sr-only">Dashboard</h1>
+
+            <div className="flex min-w-0 flex-wrap items-center gap-2">
+                {company ? (
+                    <Chip interactive={false} className="normal-case">
+                        {company.name}
+                    </Chip>
+                ) : null}
             </div>
 
             <div className="flex items-center gap-2">
-                <Button asChild className="rounded-xl">
-                    <Link href="/invoices/create">Create invoice</Link>
-                </Button>
-                <Button variant="outline" asChild className="rounded-xl">
-                    <Link href="/invoices">View invoices</Link>
-                </Button>
+                <Link
+                    href="/invoices/create"
+                    className={pillButtonClass('solid')}
+                >
+                    Create invoice
+                </Link>
             </div>
         </div>
     );
@@ -460,37 +423,59 @@ function DashboardHeader({
 function StatsGrid({
     stats,
     money,
+    statSeries,
 }: {
     stats: DashboardStats | null;
-    money: (n: number, code?: string) => string;
+    money: (n: number, code?: string) => React.ReactNode;
+    statSeries?: Charts['stat_series'];
 }) {
+    const intFmt = React.useCallback(
+        (n: number) => Math.round(n).toLocaleString(),
+        [],
+    );
+
     return (
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div className="grid shrink-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
             <StatCard
-                icon={CheckCircle2}
+                gradientId="sc-paid"
                 title="Paid revenue"
-                value={money(stats?.paid_revenue ?? 0)}
+                value={stats?.paid_revenue ?? 0}
+                formatValue={money}
                 sub={`${stats?.paid_count ?? 0} invoices`}
+                series={statSeries?.paid ?? []}
+                color={CHART_PAID}
+                icon={Wallet}
             />
             <StatCard
-                icon={Clock3}
+                gradientId="sc-pending"
                 title="Pending revenue"
-                value={money(stats?.pending_revenue ?? 0)}
+                value={stats?.pending_revenue ?? 0}
+                formatValue={money}
                 sub={`${stats?.pending_count ?? 0} invoices`}
-                tone="amber"
+                series={statSeries?.pending ?? []}
+                color={STAT_AMBER}
+                icon={Clock3}
             />
             <StatCard
-                icon={FileText}
+                gradientId="sc-overdue"
                 title="Overdue"
-                value={money(stats?.overdue_revenue ?? 0)}
+                value={stats?.overdue_revenue ?? 0}
+                formatValue={money}
                 sub="Pending past due date"
-                tone="rose"
+                series={statSeries?.overdue ?? []}
+                color={STAT_ROSE}
+                icon={AlertTriangle}
+                higherIsBetter={false}
             />
             <StatCard
-                icon={Users}
+                gradientId="sc-clients"
                 title="Clients"
-                value={`${stats?.client_count ?? 0}`}
+                value={stats?.client_count ?? 0}
+                formatValue={intFmt}
                 sub={`${stats?.total_invoices ?? 0} invoices total`}
+                series={statSeries?.clients ?? []}
+                color={CHART_PAID}
+                icon={Users}
             />
         </div>
     );
@@ -503,29 +488,32 @@ function PaidPendingCard({
     paidPendingPie,
     stats,
     money,
+    moneyText,
 }: {
     paidPendingPie: Array<{ name: string; value: number; revenue: number }>;
     stats: DashboardStats | null;
-    money: (n: number, code?: string) => string;
+    money: (n: number, code?: string) => React.ReactNode;
+    moneyText: (n: number, code?: string) => string;
 }) {
-    return (
-        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-            <div className="mb-4 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <div className="text-sm font-semibold">Paid vs Pending</div>
-                    <div className="text-xs text-muted-foreground">
-                        Counts and revenue split.
-                    </div>
-                </div>
-                <div className="text-xs text-muted-foreground">
-                    Paid: {money(stats?.paid_revenue ?? 0)} • Pending:{' '}
-                    {money(stats?.pending_revenue ?? 0)}
-                </div>
-            </div>
+    const pending = stats?.pending_revenue ?? 0;
+    const share = (part: number) => (pending > 0 ? (part / pending) * 100 : 0);
 
-            {/* strict consistent height */}
-            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
-                <div className="h-[240px]">
+    return (
+        <Panel className="flex flex-col lg:min-h-0 lg:flex-1">
+            <PanelHeader
+                icon={PieChartIcon}
+                title="Paid vs Pending"
+                subtitle="Counts and revenue split."
+                action={
+                    <div className="text-xs text-muted-foreground">
+                        Paid: {money(stats?.paid_revenue ?? 0)} • Pending:{' '}
+                        {money(pending)}
+                    </div>
+                }
+            />
+
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:min-h-0 lg:flex-1">
+                <div className="h-[200px] lg:h-auto lg:min-h-0">
                     <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                             <Pie
@@ -534,8 +522,10 @@ function PaidPendingCard({
                                 nameKey="name"
                                 cx="50%"
                                 cy="50%"
-                                outerRadius={80}
-                                label
+                                innerRadius="52%"
+                                outerRadius="78%"
+                                paddingAngle={2}
+                                stroke="none"
                             >
                                 {paidPendingPie.map((_, idx) => (
                                     <Cell
@@ -547,47 +537,44 @@ function PaidPendingCard({
                                 ))}
                             </Pie>
                             <Tooltip
+                                contentStyle={TOOLTIP_STYLE}
                                 formatter={(
                                     value: any,
                                     name: any,
                                     props: any,
                                 ) => {
                                     const rev = props?.payload?.revenue ?? 0;
-                                    return [`${value} • ${money(rev)}`, name];
+                                    return [
+                                        `${value} • ${moneyText(rev)}`,
+                                        name,
+                                    ];
                                 }}
                             />
-                            <Legend />
+                            <Legend
+                                iconType="circle"
+                                wrapperStyle={LEGEND_STYLE}
+                            />
                         </PieChart>
                     </ResponsiveContainer>
                 </div>
 
-                <div className="flex h-[240px] flex-col gap-3 overflow-hidden">
+                <div className="flex flex-col justify-center gap-2 overflow-hidden lg:min-h-0">
                     <InsightRow
                         label="Due in 7 days"
                         value={money(stats?.due_in_7_revenue ?? 0)}
-                        hint="Pending invoices due soon"
+                        percent={share(stats?.due_in_7_revenue ?? 0)}
+                        color={STAT_AMBER}
                     />
                     <InsightRow
                         label="Overdue"
                         value={money(stats?.overdue_revenue ?? 0)}
-                        hint="Pending invoices past due date"
+                        percent={share(stats?.overdue_revenue ?? 0)}
+                        color={STAT_ROSE}
                         danger
                     />
-                    <InsightRow
-                        label="Pending total"
-                        value={money(stats?.pending_revenue ?? 0)}
-                        hint="All pending invoices"
-                    />
-                    <div className="mt-auto text-xs text-muted-foreground">
-                        Tip: keep invoices{' '}
-                        <span className="font-medium text-foreground">
-                            pending
-                        </span>{' '}
-                        until payment is confirmed.
-                    </div>
                 </div>
             </div>
-        </Card>
+        </Panel>
     );
 }
 
@@ -596,96 +583,69 @@ function PaidPendingCard({
 ------------------------------------------ */
 function MonthlyTrendCard({
     monthlyTrend,
-    money,
+    moneyText,
 }: {
     monthlyTrend: Array<{ name: string; paid: number; pending: number }>;
-    money: (n: number, code?: string) => string;
+    moneyText: (n: number, code?: string) => string;
 }) {
     return (
-        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-            <div className="mb-4">
-                <div className="text-sm font-semibold">Monthly trend</div>
-                <div className="text-xs text-muted-foreground">
-                    Last 12 months paid vs pending totals.
-                </div>
-            </div>
+        <Panel className="flex flex-col lg:min-h-0 lg:flex-1">
+            <PanelHeader
+                icon={TrendingUp}
+                title="Monthly trend"
+                subtitle="Last 12 months paid vs pending totals."
+            />
 
-            <div className="h-[280px]">
+            <div className="h-[220px] lg:h-auto lg:min-h-0 lg:flex-1">
                 <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={monthlyTrend}>
-                        <CartesianGrid strokeDasharray="3 3" />
+                    <LineChart
+                        data={monthlyTrend}
+                        margin={{ top: 4, right: 8, bottom: 0, left: -12 }}
+                    >
+                        <CartesianGrid
+                            strokeDasharray="3 3"
+                            vertical={false}
+                            className="stroke-muted"
+                        />
                         <XAxis
                             dataKey="name"
-                            tick={{ fontSize: 12 }}
+                            tick={{ fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
                             interval={2}
                         />
-                        <YAxis tick={{ fontSize: 12 }} />
+                        <YAxis
+                            tick={{ fontSize: 11 }}
+                            tickLine={false}
+                            axisLine={false}
+                            width={56}
+                        />
                         <Tooltip
+                            contentStyle={TOOLTIP_STYLE}
                             formatter={(v: any, k: any) => [
-                                money(Number(v)),
+                                moneyText(Number(v)),
                                 String(k).toUpperCase(),
                             ]}
                         />
-                        <Legend />
+                        <Legend iconType="circle" wrapperStyle={LEGEND_STYLE} />
                         <Line
                             type="monotone"
                             dataKey="paid"
-                            strokeWidth={2}
+                            stroke={CHART_PAID}
+                            strokeWidth={2.5}
                             dot={false}
                         />
                         <Line
                             type="monotone"
                             dataKey="pending"
-                            strokeWidth={2}
+                            stroke={CHART_PENDING}
+                            strokeWidth={2.5}
                             dot={false}
                         />
                     </LineChart>
                 </ResponsiveContainer>
             </div>
-        </Card>
-    );
-}
-
-/* -----------------------------------------
-   Aging Buckets Card (fixed height)
------------------------------------------- */
-function AgingBucketsCard({
-    agingBars,
-    money,
-}: {
-    agingBars: Array<{ name: string; amount: number; count: number }>;
-    money: (n: number, code?: string) => string;
-}) {
-    return (
-        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-            <div className="mb-4">
-                <div className="text-sm font-semibold">Aging buckets</div>
-                <div className="text-xs text-muted-foreground">
-                    Where your receivables are sitting.
-                </div>
-            </div>
-
-            <div className="h-[260px]">
-                <ResponsiveContainer width="100%" height="100%">
-                    <BarChart data={agingBars}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="name" tick={{ fontSize: 12 }} />
-                        <YAxis tick={{ fontSize: 12 }} />
-                        <Tooltip
-                            formatter={(v: any, k: any, props: any) => {
-                                const c = props?.payload?.count ?? 0;
-                                return [
-                                    `${money(Number(v))} • ${c} invoices`,
-                                    k,
-                                ];
-                            }}
-                        />
-                        <Legend />
-                        <Bar dataKey="amount" />
-                    </BarChart>
-                </ResponsiveContainer>
-            </div>
-        </Card>
+        </Panel>
     );
 }
 
@@ -695,570 +655,382 @@ function AgingBucketsCard({
 function CalendarCard({
     calMonth,
     goMonth,
-    monthSummary,
     monthDays,
     eventsByDate,
     selectedDay,
     setSelectedDay,
     selectedEvents,
     money,
-    baseCurrency,
     todayIso,
 }: {
     calMonth: string;
     goMonth: (dir: -1 | 1) => void;
-    monthSummary: { pendingDue: number; overdueInMonth: number };
     monthDays: Array<{ date: Date; iso: string }>;
     eventsByDate: Map<string, CalendarEvent[]>;
     selectedDay: string | null;
     setSelectedDay: (d: string | null) => void;
     selectedEvents: CalendarEvent[];
-    money: (n: number, code?: string) => string;
-    baseCurrency: string;
+    money: (n: number, code?: string) => React.ReactNode;
     todayIso: string;
 }) {
+    const [y, m] = calMonth.split('-').map(Number);
+
+    // Rows vary between 5 and 6 depending on where the month starts, so the
+    // grid is told how many rows to share the available height between.
+    const rowCount = Math.ceil(monthDays.length / 7);
+
     return (
-        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-            <div className="mb-4 flex items-start justify-between gap-3">
-                <div className="flex items-center gap-2">
-                    <CalendarDays className="h-5 w-5 opacity-80" />
-                    <div>
-                        <div className="text-sm font-semibold">
-                            Due dates calendar
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                            Click a day to see invoices due.
-                        </div>
-                    </div>
-                </div>
+        <Panel className="flex flex-col lg:min-h-0 lg:flex-1">
+            <PanelHeader
+                icon={CalendarDays}
+                title={monthLabel(y, m)}
+                action={
+                    <>
+                        <IconButton
+                            label="Previous month"
+                            onClick={() => goMonth(-1)}
+                        >
+                            <ChevronLeft className="h-4 w-4" />
+                        </IconButton>
+                        <IconButton
+                            label="Next month"
+                            onClick={() => goMonth(1)}
+                        >
+                            <ChevronRight className="h-4 w-4" />
+                        </IconButton>
+                    </>
+                }
+            />
 
-                <div className="flex items-center gap-2">
-                    <Button
-                        type="button"
-                        variant="outline"
-                        className="h-9 rounded-xl px-3"
-                        onClick={() => goMonth(-1)}
-                    >
-                        Prev
-                    </Button>
-                    <Button
-                        type="button"
-                        variant="outline"
-                        className="h-9 rounded-xl px-3"
-                        onClick={() => goMonth(1)}
-                    >
-                        Next
-                    </Button>
-                </div>
-            </div>
-
-            <div className="mb-4 rounded-2xl border bg-muted/20 p-4">
-                <div className="text-xs text-muted-foreground">
-                    Selected month
-                </div>
-                <div className="mt-1 text-sm font-semibold">{calMonth}</div>
-                <div className="mt-2 grid grid-cols-2 gap-3">
-                    <MiniInfo
-                        label="Pending due this month"
-                        value={money(monthSummary.pendingDue, baseCurrency)}
-                    />
-                    <MiniInfo
-                        label="Overdue (overall)"
-                        value={money(monthSummary.overdueInMonth, baseCurrency)}
-                        danger
-                    />
-                </div>
-            </div>
-
-            <div className="grid grid-cols-7 gap-2 text-xs">
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((d) => (
-                    <div key={d} className="px-1 text-muted-foreground">
-                        {d}
-                    </div>
+            <div className="grid shrink-0 grid-cols-7 gap-1 pb-1 text-center text-[10px] font-medium text-muted-foreground">
+                {['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d, i) => (
+                    <div key={`${d}-${i}`}>{d}</div>
                 ))}
             </div>
 
-            {/* calendar grid + drawer share consistent vertical space */}
-            <div className="mt-2 grid grid-cols-1 gap-4">
-                <div className="grid grid-cols-7 gap-2">
-                    {monthDays.map(({ date, iso }) => {
-                        const evs = eventsByDate.get(iso) ?? [];
-                        const [y, m] = calMonth.split('-').map(Number);
-                        const inMonth =
-                            date.getFullYear() === y &&
-                            date.getMonth() === m - 1;
+            <div
+                className="grid grid-cols-7 gap-1 lg:min-h-0 lg:flex-1"
+                style={{
+                    gridTemplateRows: `repeat(${rowCount}, minmax(0, 1fr))`,
+                }}
+            >
+                {monthDays.map(({ date, iso }) => {
+                    const evs = eventsByDate.get(iso) ?? [];
+                    const inMonth =
+                        date.getFullYear() === y && date.getMonth() === m - 1;
 
-                        const pendingTotal = evs
-                            .filter((e) => e.status === 'pending')
-                            .reduce((a, b) => a + (b.amount ?? 0), 0);
+                    const pendingTotal = evs
+                        .filter((e) => e.status === 'pending')
+                        .reduce((a, b) => a + (b.amount ?? 0), 0);
 
-                        const isToday = iso === todayIso;
-                        const isSelected = selectedDay === iso;
+                    const isToday = iso === todayIso;
+                    const isSelected = selectedDay === iso;
 
-                        return (
-                            <button
-                                key={iso}
-                                type="button"
-                                onClick={() =>
-                                    setSelectedDay(isSelected ? null : iso)
-                                }
-                                className={cn(
-                                    'min-h-[76px] rounded-xl border p-2 text-left transition',
-                                    !inMonth && 'opacity-50',
-                                    isToday && 'border-foreground/40',
-                                    isSelected && 'bg-muted/40',
-                                    'hover:bg-muted/30',
-                                )}
-                            >
-                                <div className="flex items-center justify-between">
-                                    <div className="text-xs font-semibold">
-                                        {date.getDate()}
-                                    </div>
-                                    {evs.length > 0 ? (
-                                        <span className="rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold text-muted-foreground">
-                                            {evs.length}
-                                        </span>
-                                    ) : null}
-                                </div>
-
-                                {pendingTotal > 0 ? (
-                                    <div className="mt-2 rounded-lg bg-amber-500/10 px-2 py-1 text-[10px] font-semibold text-amber-700">
-                                        {money(
-                                            pendingTotal,
-                                            evs[0]?.currency_code,
-                                        )}
-                                    </div>
-                                ) : evs.some((e) => e.status === 'paid') ? (
-                                    <div className="mt-2 rounded-lg bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold text-emerald-700">
-                                        Paid due
-                                    </div>
-                                ) : null}
-
-                                {evs[0] ? (
-                                    <div className="mt-2 truncate text-[10px] text-muted-foreground">
-                                        {evs[0].title}
-                                    </div>
-                                ) : null}
-                            </button>
-                        );
-                    })}
-                </div>
-
-                {/* Drawer (bounded, never exceeds card space because content is capped) */}
-                <div className="rounded-2xl border p-4">
-                    <div className="mb-2 flex items-center justify-between">
-                        <div className="text-sm font-semibold">
-                            {selectedDay
-                                ? `Due on ${selectedDay}`
-                                : 'Select a day'}
-                        </div>
-                        {selectedDay ? (
-                            <Button
-                                type="button"
-                                variant="outline"
-                                className="h-8 rounded-xl px-3 text-xs"
-                                onClick={() => setSelectedDay(null)}
-                            >
-                                Clear
-                            </Button>
-                        ) : null}
-                    </div>
-
-                    {selectedDay ? (
-                        <div className="max-h-[220px] space-y-2 overflow-auto pr-1">
-                            {selectedEvents.length ? (
-                                selectedEvents.map((ev) => (
-                                    <Link
-                                        key={ev.id}
-                                        href={ev.url}
-                                        className="flex items-center justify-between rounded-xl border p-3 transition hover:bg-muted/30"
-                                    >
-                                        <div className="min-w-0">
-                                            <div className="truncate text-sm font-semibold">
-                                                {ev.title}
-                                            </div>
-                                            <div className="mt-1 text-xs text-muted-foreground">
-                                                <StatusPill
-                                                    status={ev.status}
-                                                />
-                                            </div>
-                                        </div>
-                                        <div className="shrink-0 text-sm font-semibold">
-                                            {money(ev.amount, ev.currency_code)}
-                                        </div>
-                                    </Link>
-                                ))
-                            ) : (
-                                <div className="rounded-xl border p-4 text-sm text-muted-foreground">
-                                    No invoices due on this day.
-                                </div>
+                    return (
+                        <button
+                            key={iso}
+                            type="button"
+                            onClick={() => setSelectedDay(iso)}
+                            className={cn(
+                                'flex min-h-[52px] flex-col overflow-hidden rounded-lg bg-muted/40 px-1 py-0.5 text-left transition lg:min-h-0',
+                                !inMonth && 'opacity-45',
+                                isToday && 'ring-1 ring-brand-400 ring-inset',
+                                isSelected &&
+                                    'bg-brand-50 ring-2 ring-brand ring-inset dark:bg-brand-500/20',
+                                'hover:bg-brand-50/70 dark:bg-white/5 dark:hover:bg-brand-500/10',
                             )}
-                        </div>
-                    ) : (
-                        <div className="text-sm text-muted-foreground">
-                            Tip: you can use this to plan collections and spot
-                            due spikes.
-                        </div>
-                    )}
-                </div>
+                        >
+                            <div className="flex shrink-0 items-center justify-between gap-1">
+                                <span className="text-[11px] leading-none font-semibold">
+                                    {date.getDate()}
+                                </span>
+                                {evs.length > 0 ? (
+                                    <span className="rounded-full bg-background px-1 text-[9px] leading-tight font-semibold text-muted-foreground">
+                                        {evs.length}
+                                    </span>
+                                ) : null}
+                            </div>
+
+                            {pendingTotal > 0 ? (
+                                <div className="mt-auto truncate rounded bg-amber-500/15 px-1 text-[9px] leading-tight text-amber-700 dark:text-amber-300">
+                                    {compactAmount(pendingTotal)}
+                                </div>
+                            ) : evs.some((e) => e.status === 'paid') ? (
+                                <div className="mt-auto h-1 rounded-full bg-emerald-500/50" />
+                            ) : null}
+                        </button>
+                    );
+                })}
             </div>
-        </Card>
+
+            <DayDetailsDialog
+                selectedDay={selectedDay}
+                setSelectedDay={setSelectedDay}
+                selectedEvents={selectedEvents}
+                money={money}
+            />
+        </Panel>
     );
 }
 
-/* -----------------------------------------
-   Recent Invoices Card (bounded heights)
------------------------------------------- */
-function RecentInvoicesCard({
-    invoices,
-    tableFilter,
-    setTableFilter,
-    query,
-    setQuery,
-    sortKey,
-    setSortKey,
-    sortDir,
-    setSortDir,
+/**
+ * Day details moved out of the card body and into a dialog so that opening a
+ * day can never change the dashboard's height.
+ */
+function DayDetailsDialog({
+    selectedDay,
+    setSelectedDay,
+    selectedEvents,
     money,
 }: {
-    invoices: RecentInvoice[];
-    tableFilter: 'all' | 'paid' | 'pending' | 'overdue';
-    setTableFilter: (v: 'all' | 'paid' | 'pending' | 'overdue') => void;
-    query: string;
-    setQuery: (v: string) => void;
-    sortKey: 'due_date' | 'total' | 'status';
-    setSortKey: (v: 'due_date' | 'total' | 'status') => void;
-    sortDir: 'asc' | 'desc';
-    setSortDir: (v: 'asc' | 'desc') => void;
-    money: (n: number, code?: string) => string;
+    selectedDay: string | null;
+    setSelectedDay: (d: string | null) => void;
+    selectedEvents: CalendarEvent[];
+    money: (n: number, code?: string) => React.ReactNode;
 }) {
-    const toggleSort = (k: 'due_date' | 'total' | 'status') => {
-        if (sortKey !== k) {
-            setSortKey(k);
-            setSortDir('asc');
-            return;
-        }
-        setSortDir(sortDir === 'asc' ? 'desc' : 'asc');
-    };
-
     return (
-        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-            <div className="mb-4 flex flex-col gap-3">
-                <div className="flex items-start justify-between gap-3">
-                    <div>
-                        <div className="text-sm font-semibold">
-                            Recent invoices
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                            Search, filter, and sort.
-                        </div>
-                    </div>
+        <Dialog
+            open={selectedDay !== null}
+            onOpenChange={(open) => {
+                if (!open) {
+                    setSelectedDay(null);
+                }
+            }}
+        >
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>Due on {selectedDay}</DialogTitle>
+                    <DialogDescription>
+                        {selectedEvents.length
+                            ? `${selectedEvents.length} invoice(s) due this day.`
+                            : 'No invoices due on this day.'}
+                    </DialogDescription>
+                </DialogHeader>
 
-                    <Button variant="outline" asChild className="rounded-xl">
-                        <Link href="/invoices">Open invoices</Link>
-                    </Button>
+                <div className="max-h-[50vh] space-y-2 overflow-auto">
+                    {selectedEvents.map((ev) => (
+                        <Link
+                            key={ev.id}
+                            href={ev.url}
+                            className="flex items-center justify-between gap-3 rounded-2xl bg-muted/40 p-3 transition hover:bg-brand-50/70 dark:bg-white/5 dark:hover:bg-brand-500/10"
+                        >
+                            <div className="min-w-0">
+                                <div className="truncate text-sm font-semibold">
+                                    {ev.title}
+                                </div>
+                                <div className="mt-1">
+                                    <StatusPill status={ev.status} />
+                                </div>
+                            </div>
+                            <div className="shrink-0 text-sm tabular-nums">
+                                {money(ev.amount, ev.currency_code)}
+                            </div>
+                        </Link>
+                    ))}
                 </div>
-
-                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-2">
-                        {(['all', 'paid', 'pending', 'overdue'] as const).map(
-                            (k) => (
-                                <button
-                                    key={k}
-                                    type="button"
-                                    onClick={() => setTableFilter(k)}
-                                    className={cn(
-                                        'rounded-xl border px-3 py-1.5 text-xs font-semibold transition',
-                                        tableFilter === k
-                                            ? 'bg-foreground text-background'
-                                            : 'bg-background hover:bg-muted/40',
-                                    )}
-                                >
-                                    {k === 'all' ? 'All' : k}
-                                </button>
-                            ),
-                        )}
-                    </div>
-
-                    <div className="relative w-full sm:w-[260px]">
-                        <Search className="pointer-events-none absolute top-2.5 left-3 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            value={query}
-                            onChange={(e) => setQuery(e.target.value)}
-                            className="h-9 rounded-xl pl-9"
-                            placeholder="Search invoice or client..."
-                        />
-                    </div>
-                </div>
-            </div>
-
-            {/* table wrapper has max height -> consistent with other cards */}
-            <div className="max-h-[320px] overflow-auto pr-1">
-                <table className="min-w-full text-sm">
-                    <thead className="sticky top-0 bg-background">
-                        <tr className="border-b text-left text-xs text-muted-foreground">
-                            <th className="py-2 pr-4">Invoice</th>
-                            <th className="py-2 pr-4">Client</th>
-                            <th
-                                className="cursor-pointer py-2 pr-4 select-none"
-                                onClick={() => toggleSort('due_date')}
-                            >
-                                Due{' '}
-                                {sortKey === 'due_date'
-                                    ? sortDir === 'asc'
-                                        ? '↑'
-                                        : '↓'
-                                    : ''}
-                            </th>
-                            <th
-                                className="cursor-pointer py-2 pr-4 text-right select-none"
-                                onClick={() => toggleSort('total')}
-                            >
-                                Total{' '}
-                                {sortKey === 'total'
-                                    ? sortDir === 'asc'
-                                        ? '↑'
-                                        : '↓'
-                                    : ''}
-                            </th>
-                            <th
-                                className="cursor-pointer py-2 pr-0 text-right select-none"
-                                onClick={() => toggleSort('status')}
-                            >
-                                Status{' '}
-                                {sortKey === 'status'
-                                    ? sortDir === 'asc'
-                                        ? '↑'
-                                        : '↓'
-                                    : ''}
-                            </th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {invoices.length ? (
-                            invoices.map((inv) => (
-                                <tr
-                                    key={inv.id}
-                                    className="border-b last:border-0"
-                                >
-                                    <td className="py-2 pr-4">
-                                        <Link
-                                            href={`/invoices/${inv.id}`}
-                                            className="font-semibold underline-offset-2 hover:underline"
-                                        >
-                                            {inv.number ?? `#${inv.id}`}
-                                        </Link>
-                                        <div className="text-xs text-muted-foreground">
-                                            Issued {inv.issue_date}
-                                        </div>
-                                    </td>
-                                    <td className="py-2 pr-4">
-                                        {inv.client?.name ?? '—'}
-                                    </td>
-                                    <td className="py-2 pr-4">
-                                        {inv.due_date ?? '—'}
-                                    </td>
-                                    <td className="py-2 pr-4 text-right font-semibold">
-                                        {money(inv.total, inv.currency_code)}
-                                    </td>
-                                    <td className="py-2 pr-0 text-right">
-                                        <StatusPill status={inv.status} />
-                                    </td>
-                                </tr>
-                            ))
-                        ) : (
-                            <tr>
-                                <td
-                                    colSpan={5}
-                                    className="py-8 text-center text-sm text-muted-foreground"
-                                >
-                                    No invoices found.
-                                </td>
-                            </tr>
-                        )}
-                    </tbody>
-                </table>
-            </div>
-
-            <div className="mt-4 text-xs text-muted-foreground">
-                Showing {invoices.length} invoices
-            </div>
-        </Card>
+            </DialogContent>
+        </Dialog>
     );
 }
 
 /* -----------------------------------------
-   Top Clients Card (bounded, consistent)
+   Top Clients Card (fills its column)
 ------------------------------------------ */
 function TopClientsCard({
     topClients,
     money,
 }: {
     topClients: TopClient[];
-    money: (n: number, code?: string) => string;
+    money: (n: number, code?: string) => React.ReactNode;
 }) {
     return (
-        <Card className="rounded-2xl border bg-background p-6 shadow-sm">
-            <div className="mb-4">
-                <div className="text-sm font-semibold">
-                    Top clients (pending)
-                </div>
-                <div className="text-xs text-muted-foreground">
-                    Biggest outstanding balances right now.
-                </div>
-            </div>
+        <Panel className="flex flex-col lg:h-[140px] lg:shrink-0">
+            <PanelHeader icon={Users} title="Top clients (pending)" />
 
-            <div className="max-h-[260px] space-y-3 overflow-auto pr-1">
+            <div className="max-h-[260px] space-y-1.5 overflow-auto pr-1 lg:max-h-none lg:min-h-0 lg:flex-1">
                 {topClients.length ? (
                     topClients.map((c) => (
                         <Link
                             key={c.client_id}
                             href={`/invoices?client_id=${c.client_id}&status=pending`}
-                            className="flex items-center justify-between rounded-xl border p-3 transition hover:bg-muted/30"
+                            className="flex items-center justify-between gap-2 rounded-xl bg-muted/40 p-1.5 transition hover:bg-brand-50/70 dark:bg-white/5 dark:hover:bg-brand-500/10"
                         >
-                            <div className="min-w-0">
-                                <div className="truncate text-sm font-semibold">
+                            <div className="flex min-w-0 items-center gap-2">
+                                <InitialsAvatar
+                                    name={c.name}
+                                    className="h-6 w-6 text-[10px]"
+                                />
+                                <span className="truncate text-xs font-semibold">
                                     {c.name}
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    Outstanding
-                                </div>
+                                </span>
                             </div>
-                            <div className="text-sm font-semibold">
+                            <span className="shrink-0 text-xs tabular-nums">
                                 {money(c.pending_total)}
-                            </div>
+                            </span>
                         </Link>
                     ))
                 ) : (
-                    <div className="rounded-xl border p-4 text-sm text-muted-foreground">
+                    <SoftTile className="p-4 text-sm text-muted-foreground">
                         No pending balances yet.
-                    </div>
+                    </SoftTile>
                 )}
             </div>
-        </Card>
+        </Panel>
     );
 }
 
 /* -----------------------------------------
    Shared UI pieces
 ------------------------------------------ */
-function StatCard({
-    icon: Icon,
-    title,
-    value,
-    sub,
-    tone,
-}: {
-    icon: any;
-    title: string;
-    value: string;
-    sub: string;
-    tone?: 'amber' | 'rose';
-}) {
-    const toneCls =
-        tone === 'amber'
-            ? 'bg-amber-500/10 text-amber-700'
-            : tone === 'rose'
-              ? 'bg-rose-500/10 text-rose-700'
-              : 'bg-emerald-500/10 text-emerald-700';
+/**
+ * Animates a number from 0 up to `target` on mount / when target changes.
+ */
+function useCountUp(target: number, durationMs = 750): number {
+    const [display, setDisplay] = React.useState(0);
 
-    return (
-        <Card className="rounded-2xl border bg-background p-5 shadow-sm">
-            <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                    <div className="text-xs font-semibold text-muted-foreground">
-                        {title}
-                    </div>
-                    <div className="mt-1 truncate text-2xl font-semibold tracking-tight">
-                        {value}
-                    </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                        {sub}
-                    </div>
-                </div>
-                <div
-                    className={cn(
-                        'grid h-10 w-10 place-items-center rounded-2xl',
-                        toneCls,
-                    )}
-                >
-                    <Icon className="h-5 w-5" />
-                </div>
-            </div>
-        </Card>
-    );
+    React.useEffect(() => {
+        let raf = 0;
+        const start = performance.now();
+        const from = 0;
+
+        const tick = (now: number) => {
+            const t = Math.min(1, (now - start) / durationMs);
+            // easeOutCubic
+            const eased = 1 - Math.pow(1 - t, 3);
+            setDisplay(from + (target - from) * eased);
+            if (t < 1) {
+                raf = requestAnimationFrame(tick);
+            }
+        };
+
+        raf = requestAnimationFrame(tick);
+        return () => cancelAnimationFrame(raf);
+    }, [target, durationMs]);
+
+    return display;
 }
 
-function StatusPill({ status }: { status: string }) {
-    const isPaid = status === 'paid';
+/** Month-over-month % change from the last two non-empty points. */
+function computeTrend(series: number[]): number | null {
+    if (!series || series.length < 2) {
+        return null;
+    }
+    const last = series[series.length - 1] ?? 0;
+    const prev = series[series.length - 2] ?? 0;
+    if (prev === 0) {
+        return null;
+    }
+    return ((last - prev) / prev) * 100;
+}
+
+function StatCard({
+    gradientId,
+    title,
+    value,
+    formatValue,
+    sub,
+    series,
+    color,
+    icon,
+    higherIsBetter = true,
+}: {
+    gradientId: string;
+    title: string;
+    value: number;
+    formatValue: (n: number) => React.ReactNode;
+    sub: string;
+    series: number[];
+    color: string;
+    icon: React.ComponentType<{ className?: string }>;
+    higherIsBetter?: boolean;
+}) {
+    const animated = useCountUp(value);
+    const trend = computeTrend(series);
+    const data = React.useMemo(
+        () => series.map((v, i) => ({ i, v })),
+        [series],
+    );
+
     return (
-        <span
-            className={cn(
-                'inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold capitalize',
-                isPaid
-                    ? 'bg-emerald-500/10 text-emerald-700'
-                    : 'bg-amber-500/10 text-amber-700',
-            )}
-        >
-            {isPaid ? (
-                <CheckCircle2 className="h-3.5 w-3.5" />
-            ) : (
-                <Clock3 className="h-3.5 w-3.5" />
-            )}
-            {status}
-        </span>
+        <StatTile
+            title={title}
+            value={formatValue(animated)}
+            sub={sub}
+            icon={icon}
+            trend={trend}
+            higherIsBetter={higherIsBetter}
+            sparkline={
+                data.length > 1 ? (
+                    <ResponsiveContainer width="100%" height="100%">
+                        <AreaChart
+                            data={data}
+                            margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
+                        >
+                            <defs>
+                                <linearGradient
+                                    id={gradientId}
+                                    x1="0"
+                                    y1="0"
+                                    x2="0"
+                                    y2="1"
+                                >
+                                    <stop
+                                        offset="0%"
+                                        stopColor={color}
+                                        stopOpacity={0.4}
+                                    />
+                                    <stop
+                                        offset="100%"
+                                        stopColor={color}
+                                        stopOpacity={0}
+                                    />
+                                </linearGradient>
+                            </defs>
+                            <Area
+                                type="monotone"
+                                dataKey="v"
+                                stroke={color}
+                                strokeWidth={2}
+                                fill={`url(#${gradientId})`}
+                                fillOpacity={1}
+                                isAnimationActive={false}
+                                dot={false}
+                            />
+                        </AreaChart>
+                    </ResponsiveContainer>
+                ) : null
+            }
+        />
     );
 }
 
 function InsightRow({
     label,
     value,
-    hint,
+    percent,
+    color,
     danger,
 }: {
     label: string;
-    value: string;
-    hint: string;
+    value: React.ReactNode;
+    percent: number;
+    color: string;
     danger?: boolean;
 }) {
     return (
-        <div className="rounded-xl border p-3">
-            <div className="flex items-center justify-between">
-                <div className="text-sm font-semibold">{label}</div>
+        <SoftTile className="flex shrink-0 items-center gap-3 p-2.5">
+            <Ring percent={percent} color={color} label={label} size={42} />
+            <div className="min-w-0">
+                <div className="truncate text-xs font-semibold">{label}</div>
                 <div
                     className={cn(
-                        'text-sm font-semibold',
-                        danger && 'text-rose-700',
+                        'mt-0.5 truncate text-sm tabular-nums',
+                        danger && 'text-rose-600 dark:text-rose-400',
                     )}
                 >
                     {value}
                 </div>
             </div>
-            <div className="mt-1 text-xs text-muted-foreground">{hint}</div>
-        </div>
-    );
-}
-
-function MiniInfo({
-    label,
-    value,
-    danger,
-}: {
-    label: string;
-    value: string;
-    danger?: boolean;
-}) {
-    return (
-        <div className="rounded-xl border bg-background p-3">
-            <div className="text-[11px] text-muted-foreground">{label}</div>
-            <div
-                className={cn(
-                    'mt-1 text-sm font-semibold',
-                    danger && 'text-rose-700',
-                )}
-            >
-                {value}
-            </div>
-        </div>
+        </SoftTile>
     );
 }

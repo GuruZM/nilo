@@ -34,6 +34,9 @@ class RegisteredUserController extends Controller
             'name' => 'required|string|max:255',
             'email' => 'required|string|lowercase|email|max:255|unique:'.User::class,
             'password' => ['required', 'confirmed', Rules\Password::defaults()],
+            'terms' => ['accepted'],
+        ], [
+            'terms.accepted' => 'You must agree to the Terms and Conditions.',
         ]);
 
         $user = User::create([
@@ -44,8 +47,10 @@ class RegisteredUserController extends Controller
 
         event(new Registered($user));
 
+        $user->subscribeToFreePlan();
+
         Auth::login($user);
 
-        return redirect()->intended(route('dashboard', absolute: false));
+        return redirect()->route('dashboard');
     }
 }

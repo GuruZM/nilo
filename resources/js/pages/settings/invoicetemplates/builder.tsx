@@ -7,7 +7,6 @@ import {
     Check,
     CheckCircle2,
     Eye,
-    LayoutTemplate,
     Palette,
     Save,
     Settings2,
@@ -18,13 +17,14 @@ import * as React from 'react';
 import { toast } from 'sonner';
 
 import AppLayout from '@/layouts/app-layout';
-import SettingsLayout from '@/layouts/settings/layout';
 import { type BreadcrumbItem } from '@/types/index.d';
+
+import { Panel } from '@/components/dashboard/primitives';
+import NiloSpinner from '@/components/nilo-spinner';
 
 // shadcn
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Card } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -51,6 +51,7 @@ type TemplateSettings = {
     brand: {
         primary: string;
         accent: string;
+        header: string;
         font: 'Inter' | 'Roboto' | 'Arial';
     };
     layout: {
@@ -125,7 +126,12 @@ const PRESETS: Array<{
         name: 'Wave Premium',
         description: 'Bold header with wave + accent table + grand total.',
         defaults: {
-            brand: { primary: '#111827', accent: '#F59E0B', font: 'Inter' },
+            brand: {
+                primary: '#111827',
+                accent: '#F59E0B',
+                header: '#111827',
+                font: 'Inter',
+            },
             layout: { header: 'split', table: 'striped', density: 'normal' },
         },
     },
@@ -134,7 +140,12 @@ const PRESETS: Array<{
         name: 'Modern Minimal',
         description: 'Clean, modern look. Great default.',
         defaults: {
-            brand: { primary: '#0F172A', accent: '#22C55E', font: 'Inter' },
+            brand: {
+                primary: '#0F172A',
+                accent: '#22C55E',
+                header: '#0F172A',
+                font: 'Inter',
+            },
             layout: { header: 'split', table: 'striped', density: 'normal' },
         },
     },
@@ -143,7 +154,12 @@ const PRESETS: Array<{
         name: 'Classic Business',
         description: 'Traditional layout, lined table, corporate safe.',
         defaults: {
-            brand: { primary: '#111827', accent: '#2563EB', font: 'Arial' },
+            brand: {
+                primary: '#111827',
+                accent: '#2563EB',
+                header: '#1E3A8A',
+                font: 'Arial',
+            },
             layout: { header: 'left', table: 'lined', density: 'normal' },
         },
     },
@@ -152,7 +168,12 @@ const PRESETS: Array<{
         name: 'Bold Header',
         description: 'Strong title + airy spacing for premium brands.',
         defaults: {
-            brand: { primary: '#111827', accent: '#F97316', font: 'Inter' },
+            brand: {
+                primary: '#111827',
+                accent: '#F97316',
+                header: '#7C2D12',
+                font: 'Inter',
+            },
             layout: { header: 'center', table: 'clean', density: 'airy' },
         },
     },
@@ -160,7 +181,12 @@ const PRESETS: Array<{
 
 const DEFAULT_SETTINGS: TemplateSettings = {
     preset: 'wave_premium',
-    brand: { primary: '#111827', accent: '#F59E0B', font: 'Inter' },
+    brand: {
+        primary: '#111827',
+        accent: '#F59E0B',
+        header: '#111827',
+        font: 'Inter',
+    },
     layout: { header: 'split', table: 'striped', density: 'normal' },
     visibility: {
         show_logo: true,
@@ -228,7 +254,9 @@ export default function InvoiceTemplateBuilder({
     const documentNumberValue =
         module.type === 'quotation' ? 'QUO-000123' : 'INV-000123';
     const sampleLabel =
-        module.type === 'quotation' ? 'A4 preview (sample quotation)' : 'A4 preview (sample invoice)';
+        module.type === 'quotation'
+            ? 'A4 preview (sample quotation)'
+            : 'A4 preview (sample invoice)';
 
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Settings', href: '/settings/profile' },
@@ -255,10 +283,17 @@ export default function InvoiceTemplateBuilder({
         const s = template?.settings ?? null;
         if (!s) return DEFAULT_SETTINGS;
 
+        const brand = { ...DEFAULT_SETTINGS.brand, ...(s.brand ?? {}) };
+
         return {
             ...DEFAULT_SETTINGS,
             ...s,
-            brand: { ...DEFAULT_SETTINGS.brand, ...(s.brand ?? {}) },
+            brand: {
+                ...brand,
+                // Templates saved before the header color existed drew the
+                // header band from the primary color.
+                header: s.brand?.header ?? brand.primary,
+            },
             layout: { ...DEFAULT_SETTINGS.layout, ...(s.layout ?? {}) },
             visibility: {
                 ...DEFAULT_SETTINGS.visibility,
@@ -290,13 +325,13 @@ export default function InvoiceTemplateBuilder({
             preset: presetId,
             brand: {
                 ...DEFAULT_SETTINGS.brand,
-                ...(preset?.defaults.brand ?? {}),
                 ...settings.brand,
+                ...(preset?.defaults.brand ?? {}),
             },
             layout: {
                 ...DEFAULT_SETTINGS.layout,
-                ...(preset?.defaults.layout ?? {}),
                 ...settings.layout,
+                ...(preset?.defaults.layout ?? {}),
             },
             visibility: {
                 ...DEFAULT_SETTINGS.visibility,
@@ -397,14 +432,16 @@ export default function InvoiceTemplateBuilder({
             router.post(module.basePath, payload, {
                 preserveScroll: true,
                 preserveState: false,
-                onSuccess: () => toast.success(`${module.singularTitle} created.`),
+                onSuccess: () =>
+                    toast.success(`${module.singularTitle} created.`),
                 onError,
             });
         } else {
             router.put(`${module.basePath}/${template?.id}`, payload, {
                 preserveScroll: true,
                 preserveState: false,
-                onSuccess: () => toast.success(`${module.singularTitle} updated.`),
+                onSuccess: () =>
+                    toast.success(`${module.singularTitle} updated.`),
                 onError,
             });
         }
@@ -426,638 +463,631 @@ export default function InvoiceTemplateBuilder({
                 />
             </Head>
 
-            <SettingsLayout>
-                <motion.div
-                    initial={{ opacity: 0, y: 14 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.25, ease: 'easeOut' }}
-                    className="space-y-6"
-                >
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div className="flex items-start gap-3">
-                            <div className="grid h-11 w-11 place-items-center rounded-2xl bg-muted">
-                                <LayoutTemplate className="h-6 w-6 opacity-80" />
-                            </div>
-                            <div>
-                                <div className="flex items-center gap-2">
-                                    <h1 className="text-2xl font-semibold tracking-tight">
-                                        {module.singularTitle} builder
-                                    </h1>
-                                    <Badge
-                                        variant="secondary"
-                                        className="rounded-full"
+            <motion.div
+                initial={{ opacity: 0, y: 14 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.25, ease: 'easeOut' }}
+                className="space-y-6"
+            >
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="rounded-full">
+                            {mode === 'create' ? 'Create' : 'Edit'}
+                        </Badge>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                        <Button
+                            variant="outline"
+                            className="gap-2 rounded-xl"
+                            onClick={() => router.visit(module.basePath)}
+                        >
+                            <ArrowLeft className="h-4 w-4" />
+                            Back
+                        </Button>
+
+                        <Button
+                            className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                            onClick={save}
+                            disabled={form.processing}
+                        >
+                            {form.processing ? (
+                                <NiloSpinner size={16} />
+                            ) : (
+                                <Save className="h-4 w-4" />
+                            )}
+                            {mode === 'create'
+                                ? 'Save template'
+                                : 'Update template'}
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
+                    {/* Left: Controls */}
+                    <Panel className="flex flex-col lg:col-span-5">
+                        <Stepper step={step} onStep={setStep} />
+
+                        <Separator className="my-4" />
+
+                        <div className="flex-1">
+                            <AnimatePresence mode="wait">
+                                {step === 'preset' && (
+                                    <motion.div
+                                        key="preset"
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 10 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="space-y-4"
                                     >
-                                        {mode === 'create' ? 'Create' : 'Edit'}
-                                    </Badge>
-                                </div>
-                                <p className="mt-1 text-sm text-muted-foreground">
-                                    Premium presets + styling + layout controls
-                                    with a designer-grade live preview.
-                                </p>
-                            </div>
+                                        <div className="space-y-2">
+                                            <Label>Template name *</Label>
+                                            <Input
+                                                value={form.data.name}
+                                                onChange={(e) =>
+                                                    form.setData(
+                                                        'name',
+                                                        e.target.value,
+                                                    )
+                                                }
+                                                className="rounded-xl"
+                                            />
+                                            {form.errors.name && (
+                                                <p className="text-sm text-destructive">
+                                                    {form.errors.name}
+                                                </p>
+                                            )}
+                                        </div>
+
+                                        <div className="flex items-center justify-between rounded-xl border p-4">
+                                            <div>
+                                                <div className="text-sm font-semibold">
+                                                    Default template
+                                                </div>
+                                                <div className="text-xs text-muted-foreground">
+                                                    Make this the default{' '}
+                                                    {singularLabel} for this
+                                                    company.
+                                                </div>
+                                            </div>
+                                            <Switch
+                                                checked={!!form.data.is_default}
+                                                onCheckedChange={(v) =>
+                                                    form.setData(
+                                                        'is_default',
+                                                        !!v,
+                                                    )
+                                                }
+                                            />
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Preset</Label>
+                                            <div className="grid grid-cols-1 gap-3">
+                                                {PRESETS.map((p) => {
+                                                    const selected =
+                                                        settings.preset ===
+                                                        p.id;
+                                                    return (
+                                                        <button
+                                                            type="button"
+                                                            key={p.id}
+                                                            onClick={() =>
+                                                                applyPreset(
+                                                                    p.id,
+                                                                )
+                                                            }
+                                                            className={cn(
+                                                                'w-full rounded-2xl border p-4 text-left transition',
+                                                                'hover:bg-muted/30',
+                                                                selected &&
+                                                                    'border-foreground/30 bg-muted/40',
+                                                            )}
+                                                        >
+                                                            <div className="flex items-start justify-between gap-2">
+                                                                <div>
+                                                                    <div className="text-sm font-semibold">
+                                                                        {p.name}
+                                                                    </div>
+                                                                    <div className="mt-1 text-xs text-muted-foreground">
+                                                                        {
+                                                                            p.description
+                                                                        }
+                                                                    </div>
+                                                                </div>
+                                                                {selected && (
+                                                                    <Check className="h-4 w-4 opacity-80" />
+                                                                )}
+                                                            </div>
+                                                        </button>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    </motion.div>
+                                )}
+
+                                {step === 'style' && (
+                                    <motion.div
+                                        key="style"
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 10 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="space-y-4"
+                                    >
+                                        <div className="grid grid-cols-2 gap-3">
+                                            <div className="space-y-2">
+                                                <Label>Primary color</Label>
+                                                <Input
+                                                    type="color"
+                                                    value={
+                                                        settings.brand.primary
+                                                    }
+                                                    onChange={(e) =>
+                                                        setBrand(
+                                                            'primary',
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                    className="h-10 rounded-xl p-1"
+                                                />
+                                            </div>
+                                            <div className="space-y-2">
+                                                <Label>Accent color</Label>
+                                                <Input
+                                                    type="color"
+                                                    value={
+                                                        settings.brand.accent
+                                                    }
+                                                    onChange={(e) =>
+                                                        setBrand(
+                                                            'accent',
+                                                            e.target.value,
+                                                        )
+                                                    }
+                                                    className="h-10 rounded-xl p-1"
+                                                />
+                                            </div>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Header color</Label>
+                                            <Input
+                                                type="color"
+                                                value={settings.brand.header}
+                                                onChange={(e) =>
+                                                    setBrand(
+                                                        'header',
+                                                        e.target.value,
+                                                    )
+                                                }
+                                                className="h-10 rounded-xl p-1"
+                                            />
+                                            <p className="text-xs text-muted-foreground">
+                                                Background of the document
+                                                header band.
+                                            </p>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Font</Label>
+                                            <Select
+                                                value={settings.brand.font}
+                                                onValueChange={(v: any) =>
+                                                    setBrand('font', v)
+                                                }
+                                            >
+                                                <SelectTrigger className="rounded-xl">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="Inter">
+                                                        Inter
+                                                    </SelectItem>
+                                                    <SelectItem value="Roboto">
+                                                        Roboto
+                                                    </SelectItem>
+                                                    <SelectItem value="Arial">
+                                                        Arial
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Density</Label>
+                                            <Select
+                                                value={settings.layout.density}
+                                                onValueChange={(v: any) =>
+                                                    setLayout('density', v)
+                                                }
+                                            >
+                                                <SelectTrigger className="rounded-xl">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="compact">
+                                                        Compact
+                                                    </SelectItem>
+                                                    <SelectItem value="normal">
+                                                        Normal
+                                                    </SelectItem>
+                                                    <SelectItem value="airy">
+                                                        Airy
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </motion.div>
+                                )}
+
+                                {step === 'layout' && (
+                                    <motion.div
+                                        key="layout"
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 10 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="space-y-4"
+                                    >
+                                        <div className="space-y-2">
+                                            <Label>Header layout</Label>
+                                            <Select
+                                                value={settings.layout.header}
+                                                onValueChange={(v: any) =>
+                                                    setLayout('header', v)
+                                                }
+                                            >
+                                                <SelectTrigger className="rounded-xl">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="split">
+                                                        Split (logo left, meta
+                                                        right)
+                                                    </SelectItem>
+                                                    <SelectItem value="left">
+                                                        Left aligned
+                                                    </SelectItem>
+                                                    <SelectItem value="center">
+                                                        Centered
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Table style</Label>
+                                            <Select
+                                                value={settings.layout.table}
+                                                onValueChange={(v: any) =>
+                                                    setLayout('table', v)
+                                                }
+                                            >
+                                                <SelectTrigger className="rounded-xl">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="striped">
+                                                        Striped
+                                                    </SelectItem>
+                                                    <SelectItem value="lined">
+                                                        Lined
+                                                    </SelectItem>
+                                                    <SelectItem value="clean">
+                                                        Clean
+                                                    </SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+
+                                        <Separator />
+
+                                        <div className="space-y-3">
+                                            <div className="text-sm font-semibold">
+                                                Visibility (layout)
+                                            </div>
+
+                                            <ToggleRow
+                                                label="Show logo"
+                                                checked={
+                                                    settings.visibility
+                                                        .show_logo
+                                                }
+                                                onChange={(v) =>
+                                                    setVisibility(
+                                                        'show_logo',
+                                                        v,
+                                                    )
+                                                }
+                                            />
+                                            <ToggleRow
+                                                label="Show client email"
+                                                checked={
+                                                    settings.visibility
+                                                        .show_client_email
+                                                }
+                                                onChange={(v) =>
+                                                    setVisibility(
+                                                        'show_client_email',
+                                                        v,
+                                                    )
+                                                }
+                                            />
+                                            <ToggleRow
+                                                label="Show contact person"
+                                                checked={
+                                                    settings.visibility
+                                                        .show_contact_person
+                                                }
+                                                onChange={(v) =>
+                                                    setVisibility(
+                                                        'show_contact_person',
+                                                        v,
+                                                    )
+                                                }
+                                            />
+                                        </div>
+                                    </motion.div>
+                                )}
+
+                                {step === 'content' && (
+                                    <motion.div
+                                        key="content"
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 10 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="space-y-4"
+                                    >
+                                        {/* Content toggles moved here */}
+                                        <div className="space-y-3">
+                                            <div className="text-sm font-semibold">
+                                                Content blocks
+                                            </div>
+
+                                            <ToggleRow
+                                                label="Show notes"
+                                                checked={
+                                                    settings.visibility
+                                                        .show_notes
+                                                }
+                                                onChange={(v) =>
+                                                    setVisibility(
+                                                        'show_notes',
+                                                        v,
+                                                    )
+                                                }
+                                            />
+                                            <ToggleRow
+                                                label="Show terms"
+                                                checked={
+                                                    settings.visibility
+                                                        .show_terms
+                                                }
+                                                onChange={(v) =>
+                                                    setVisibility(
+                                                        'show_terms',
+                                                        v,
+                                                    )
+                                                }
+                                            />
+                                            <ToggleRow
+                                                label="Show bank details"
+                                                checked={
+                                                    settings.visibility
+                                                        .show_bank_details
+                                                }
+                                                onChange={(v) =>
+                                                    setVisibility(
+                                                        'show_bank_details',
+                                                        v,
+                                                    )
+                                                }
+                                            />
+                                            <ToggleRow
+                                                label="Show signature"
+                                                checked={
+                                                    settings.visibility
+                                                        .show_signature
+                                                }
+                                                onChange={(v) =>
+                                                    setVisibility(
+                                                        'show_signature',
+                                                        v,
+                                                    )
+                                                }
+                                            />
+                                        </div>
+
+                                        <Separator />
+
+                                        <div className="space-y-2">
+                                            <Label>Default terms</Label>
+                                            <Textarea
+                                                value={form.data.terms_html}
+                                                onChange={(e) =>
+                                                    form.setData(
+                                                        'terms_html',
+                                                        e.target.value,
+                                                    )
+                                                }
+                                                className="min-h-[120px] rounded-xl"
+                                                placeholder="Payment terms..."
+                                            />
+                                        </div>
+
+                                        <div className="space-y-2">
+                                            <Label>Footer text</Label>
+                                            <Textarea
+                                                value={form.data.footer_html}
+                                                onChange={(e) =>
+                                                    form.setData(
+                                                        'footer_html',
+                                                        e.target.value,
+                                                    )
+                                                }
+                                                className="min-h-[90px] rounded-xl"
+                                                placeholder="Footer..."
+                                            />
+                                        </div>
+                                    </motion.div>
+                                )}
+
+                                {step === 'review' && (
+                                    <motion.div
+                                        key="review"
+                                        initial={{ opacity: 0, y: 10 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: 10 }}
+                                        transition={{ duration: 0.2 }}
+                                        className="space-y-4"
+                                    >
+                                        <div className="rounded-2xl border p-4">
+                                            <div className="text-sm font-semibold">
+                                                Summary
+                                            </div>
+
+                                            <div className="mt-3 space-y-2 text-sm text-muted-foreground">
+                                                <div>
+                                                    <span className="font-medium text-foreground">
+                                                        Name:
+                                                    </span>{' '}
+                                                    {form.data.name || '—'}
+                                                </div>
+                                                <div>
+                                                    <span className="font-medium text-foreground">
+                                                        Preset:
+                                                    </span>{' '}
+                                                    {settings.preset}
+                                                </div>
+                                                <div>
+                                                    <span className="font-medium text-foreground">
+                                                        Font:
+                                                    </span>{' '}
+                                                    {settings.brand.font}
+                                                </div>
+                                                <div>
+                                                    <span className="font-medium text-foreground">
+                                                        Header:
+                                                    </span>{' '}
+                                                    {settings.layout.header}
+                                                </div>
+                                                <div>
+                                                    <span className="font-medium text-foreground">
+                                                        Table:
+                                                    </span>{' '}
+                                                    {settings.layout.table}
+                                                </div>
+                                                <div>
+                                                    <span className="font-medium text-foreground">
+                                                        Default:
+                                                    </span>{' '}
+                                                    {form.data.is_default
+                                                        ? 'Yes'
+                                                        : 'No'}
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <Button
+                                            type="button"
+                                            className="w-full gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
+                                            onClick={save}
+                                            disabled={form.processing}
+                                        >
+                                            {form.processing ? (
+                                                <NiloSpinner size={16} />
+                                            ) : (
+                                                <CheckCircle2 className="h-4 w-4" />
+                                            )}
+                                            {mode === 'create'
+                                                ? 'Save template'
+                                                : 'Update template'}
+                                        </Button>
+
+                                        {form.errors &&
+                                            (form.errors as any).template && (
+                                                <p className="text-sm text-destructive">
+                                                    {
+                                                        (form.errors as any)
+                                                            .template
+                                                    }
+                                                </p>
+                                            )}
+                                    </motion.div>
+                                )}
+                            </AnimatePresence>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <Separator className="my-4" />
+
+                        <div className="flex items-center justify-between">
                             <Button
+                                type="button"
                                 variant="outline"
-                                className="gap-2 rounded-xl"
-                                onClick={() => router.visit(module.basePath)}
+                                onClick={goBack}
+                                disabled={step === 'preset' || form.processing}
+                                className="rounded-xl"
                             >
-                                <ArrowLeft className="h-4 w-4" />
                                 Back
                             </Button>
 
-                            <Button
-                                className="gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                                onClick={save}
-                                disabled={form.processing}
-                            >
-                                <Save className="h-4 w-4" />
-                                {mode === 'create'
-                                    ? 'Save template'
-                                    : 'Update template'}
-                            </Button>
-                        </div>
-                    </div>
-
-                    <div className="grid grid-cols-1 gap-6 lg:grid-cols-12">
-                        {/* Left: Controls */}
-                        <Card className="flex flex-col rounded-2xl border bg-background p-6 shadow-sm lg:col-span-5">
-                            <Stepper step={step} onStep={setStep} />
-
-                            <Separator className="my-4" />
-
-                            <div className="flex-1">
-                                <AnimatePresence mode="wait">
-                                    {step === 'preset' && (
-                                        <motion.div
-                                            key="preset"
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: 10 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="space-y-4"
-                                        >
-                                            <div className="space-y-2">
-                                                <Label>Template name *</Label>
-                                                <Input
-                                                    value={form.data.name}
-                                                    onChange={(e) =>
-                                                        form.setData(
-                                                            'name',
-                                                            e.target.value,
-                                                        )
-                                                    }
-                                                    className="rounded-xl"
-                                                    placeholder={`e.g. Wave Premium (${module.type === 'quotation' ? 'Quotation' : 'Invoice'})`}
-                                                />
-                                                {form.errors.name && (
-                                                    <p className="text-sm text-destructive">
-                                                        {form.errors.name}
-                                                    </p>
-                                                )}
-                                            </div>
-
-                                            <div className="flex items-center justify-between rounded-xl border p-4">
-                                                <div>
-                                                    <div className="text-sm font-semibold">
-                                                        Default template
-                                                    </div>
-                                                    <div className="text-xs text-muted-foreground">
-                                                        Make this the default{' '}
-                                                        {singularLabel} for
-                                                        this company.
-                                                    </div>
-                                                </div>
-                                                <Switch
-                                                    checked={
-                                                        !!form.data.is_default
-                                                    }
-                                                    onCheckedChange={(v) =>
-                                                        form.setData(
-                                                            'is_default',
-                                                            !!v,
-                                                        )
-                                                    }
-                                                />
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label>Preset</Label>
-                                                <div className="grid grid-cols-1 gap-3">
-                                                    {PRESETS.map((p) => {
-                                                        const selected =
-                                                            settings.preset ===
-                                                            p.id;
-                                                        return (
-                                                            <button
-                                                                type="button"
-                                                                key={p.id}
-                                                                onClick={() =>
-                                                                    applyPreset(
-                                                                        p.id,
-                                                                    )
-                                                                }
-                                                                className={cn(
-                                                                    'w-full rounded-2xl border p-4 text-left transition',
-                                                                    'hover:bg-muted/30',
-                                                                    selected &&
-                                                                        'border-foreground/30 bg-muted/40',
-                                                                )}
-                                                            >
-                                                                <div className="flex items-start justify-between gap-2">
-                                                                    <div>
-                                                                        <div className="text-sm font-semibold">
-                                                                            {
-                                                                                p.name
-                                                                            }
-                                                                        </div>
-                                                                        <div className="mt-1 text-xs text-muted-foreground">
-                                                                            {
-                                                                                p.description
-                                                                            }
-                                                                        </div>
-                                                                    </div>
-                                                                    {selected && (
-                                                                        <Check className="h-4 w-4 opacity-80" />
-                                                                    )}
-                                                                </div>
-                                                            </button>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        </motion.div>
-                                    )}
-
-                                    {step === 'style' && (
-                                        <motion.div
-                                            key="style"
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: 10 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="space-y-4"
-                                        >
-                                            <div className="grid grid-cols-2 gap-3">
-                                                <div className="space-y-2">
-                                                    <Label>Primary color</Label>
-                                                    <Input
-                                                        type="color"
-                                                        value={
-                                                            settings.brand
-                                                                .primary
-                                                        }
-                                                        onChange={(e) =>
-                                                            setBrand(
-                                                                'primary',
-                                                                e.target.value,
-                                                            )
-                                                        }
-                                                        className="h-10 rounded-xl p-1"
-                                                    />
-                                                </div>
-                                                <div className="space-y-2">
-                                                    <Label>Accent color</Label>
-                                                    <Input
-                                                        type="color"
-                                                        value={
-                                                            settings.brand
-                                                                .accent
-                                                        }
-                                                        onChange={(e) =>
-                                                            setBrand(
-                                                                'accent',
-                                                                e.target.value,
-                                                            )
-                                                        }
-                                                        className="h-10 rounded-xl p-1"
-                                                    />
-                                                </div>
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label>Font</Label>
-                                                <Select
-                                                    value={settings.brand.font}
-                                                    onValueChange={(v: any) =>
-                                                        setBrand('font', v)
-                                                    }
-                                                >
-                                                    <SelectTrigger className="rounded-xl">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="Inter">
-                                                            Inter
-                                                        </SelectItem>
-                                                        <SelectItem value="Roboto">
-                                                            Roboto
-                                                        </SelectItem>
-                                                        <SelectItem value="Arial">
-                                                            Arial
-                                                        </SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label>Density</Label>
-                                                <Select
-                                                    value={
-                                                        settings.layout.density
-                                                    }
-                                                    onValueChange={(v: any) =>
-                                                        setLayout('density', v)
-                                                    }
-                                                >
-                                                    <SelectTrigger className="rounded-xl">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="compact">
-                                                            Compact
-                                                        </SelectItem>
-                                                        <SelectItem value="normal">
-                                                            Normal
-                                                        </SelectItem>
-                                                        <SelectItem value="airy">
-                                                            Airy
-                                                        </SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-                                        </motion.div>
-                                    )}
-
-                                    {step === 'layout' && (
-                                        <motion.div
-                                            key="layout"
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: 10 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="space-y-4"
-                                        >
-                                            <div className="space-y-2">
-                                                <Label>Header layout</Label>
-                                                <Select
-                                                    value={
-                                                        settings.layout.header
-                                                    }
-                                                    onValueChange={(v: any) =>
-                                                        setLayout('header', v)
-                                                    }
-                                                >
-                                                    <SelectTrigger className="rounded-xl">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="split">
-                                                            Split (logo left,
-                                                            meta right)
-                                                        </SelectItem>
-                                                        <SelectItem value="left">
-                                                            Left aligned
-                                                        </SelectItem>
-                                                        <SelectItem value="center">
-                                                            Centered
-                                                        </SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label>Table style</Label>
-                                                <Select
-                                                    value={
-                                                        settings.layout.table
-                                                    }
-                                                    onValueChange={(v: any) =>
-                                                        setLayout('table', v)
-                                                    }
-                                                >
-                                                    <SelectTrigger className="rounded-xl">
-                                                        <SelectValue />
-                                                    </SelectTrigger>
-                                                    <SelectContent>
-                                                        <SelectItem value="striped">
-                                                            Striped
-                                                        </SelectItem>
-                                                        <SelectItem value="lined">
-                                                            Lined
-                                                        </SelectItem>
-                                                        <SelectItem value="clean">
-                                                            Clean
-                                                        </SelectItem>
-                                                    </SelectContent>
-                                                </Select>
-                                            </div>
-
-                                            <Separator />
-
-                                            <div className="space-y-3">
-                                                <div className="text-sm font-semibold">
-                                                    Visibility (layout)
-                                                </div>
-
-                                                <ToggleRow
-                                                    label="Show logo"
-                                                    checked={
-                                                        settings.visibility
-                                                            .show_logo
-                                                    }
-                                                    onChange={(v) =>
-                                                        setVisibility(
-                                                            'show_logo',
-                                                            v,
-                                                        )
-                                                    }
-                                                />
-                                                <ToggleRow
-                                                    label="Show client email"
-                                                    checked={
-                                                        settings.visibility
-                                                            .show_client_email
-                                                    }
-                                                    onChange={(v) =>
-                                                        setVisibility(
-                                                            'show_client_email',
-                                                            v,
-                                                        )
-                                                    }
-                                                />
-                                                <ToggleRow
-                                                    label="Show contact person"
-                                                    checked={
-                                                        settings.visibility
-                                                            .show_contact_person
-                                                    }
-                                                    onChange={(v) =>
-                                                        setVisibility(
-                                                            'show_contact_person',
-                                                            v,
-                                                        )
-                                                    }
-                                                />
-                                            </div>
-                                        </motion.div>
-                                    )}
-
-                                    {step === 'content' && (
-                                        <motion.div
-                                            key="content"
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: 10 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="space-y-4"
-                                        >
-                                            {/* Content toggles moved here */}
-                                            <div className="space-y-3">
-                                                <div className="text-sm font-semibold">
-                                                    Content blocks
-                                                </div>
-
-                                                <ToggleRow
-                                                    label="Show notes"
-                                                    checked={
-                                                        settings.visibility
-                                                            .show_notes
-                                                    }
-                                                    onChange={(v) =>
-                                                        setVisibility(
-                                                            'show_notes',
-                                                            v,
-                                                        )
-                                                    }
-                                                />
-                                                <ToggleRow
-                                                    label="Show terms"
-                                                    checked={
-                                                        settings.visibility
-                                                            .show_terms
-                                                    }
-                                                    onChange={(v) =>
-                                                        setVisibility(
-                                                            'show_terms',
-                                                            v,
-                                                        )
-                                                    }
-                                                />
-                                                <ToggleRow
-                                                    label="Show bank details"
-                                                    checked={
-                                                        settings.visibility
-                                                            .show_bank_details
-                                                    }
-                                                    onChange={(v) =>
-                                                        setVisibility(
-                                                            'show_bank_details',
-                                                            v,
-                                                        )
-                                                    }
-                                                />
-                                                <ToggleRow
-                                                    label="Show signature"
-                                                    checked={
-                                                        settings.visibility
-                                                            .show_signature
-                                                    }
-                                                    onChange={(v) =>
-                                                        setVisibility(
-                                                            'show_signature',
-                                                            v,
-                                                        )
-                                                    }
-                                                />
-                                            </div>
-
-                                            <Separator />
-
-                                            <div className="space-y-2">
-                                                <Label>Default terms</Label>
-                                                <Textarea
-                                                    value={form.data.terms_html}
-                                                    onChange={(e) =>
-                                                        form.setData(
-                                                            'terms_html',
-                                                            e.target.value,
-                                                        )
-                                                    }
-                                                    className="min-h-[120px] rounded-xl"
-                                                    placeholder="Payment terms..."
-                                                />
-                                            </div>
-
-                                            <div className="space-y-2">
-                                                <Label>Footer text</Label>
-                                                <Textarea
-                                                    value={
-                                                        form.data.footer_html
-                                                    }
-                                                    onChange={(e) =>
-                                                        form.setData(
-                                                            'footer_html',
-                                                            e.target.value,
-                                                        )
-                                                    }
-                                                    className="min-h-[90px] rounded-xl"
-                                                    placeholder="Footer..."
-                                                />
-                                            </div>
-                                        </motion.div>
-                                    )}
-
-                                    {step === 'review' && (
-                                        <motion.div
-                                            key="review"
-                                            initial={{ opacity: 0, y: 10 }}
-                                            animate={{ opacity: 1, y: 0 }}
-                                            exit={{ opacity: 0, y: 10 }}
-                                            transition={{ duration: 0.2 }}
-                                            className="space-y-4"
-                                        >
-                                            <div className="rounded-2xl border p-4">
-                                                <div className="text-sm font-semibold">
-                                                    Summary
-                                                </div>
-
-                                                <div className="mt-3 space-y-2 text-sm text-muted-foreground">
-                                                    <div>
-                                                        <span className="font-medium text-foreground">
-                                                            Name:
-                                                        </span>{' '}
-                                                        {form.data.name || '—'}
-                                                    </div>
-                                                    <div>
-                                                        <span className="font-medium text-foreground">
-                                                            Preset:
-                                                        </span>{' '}
-                                                        {settings.preset}
-                                                    </div>
-                                                    <div>
-                                                        <span className="font-medium text-foreground">
-                                                            Font:
-                                                        </span>{' '}
-                                                        {settings.brand.font}
-                                                    </div>
-                                                    <div>
-                                                        <span className="font-medium text-foreground">
-                                                            Header:
-                                                        </span>{' '}
-                                                        {settings.layout.header}
-                                                    </div>
-                                                    <div>
-                                                        <span className="font-medium text-foreground">
-                                                            Table:
-                                                        </span>{' '}
-                                                        {settings.layout.table}
-                                                    </div>
-                                                    <div>
-                                                        <span className="font-medium text-foreground">
-                                                            Default:
-                                                        </span>{' '}
-                                                        {form.data.is_default
-                                                            ? 'Yes'
-                                                            : 'No'}
-                                                    </div>
-                                                </div>
-                                            </div>
-
-                                            <Button
-                                                type="button"
-                                                className="w-full gap-2 rounded-xl transition-transform hover:scale-[1.02] active:scale-[0.98]"
-                                                onClick={save}
-                                                disabled={form.processing}
-                                            >
-                                                <CheckCircle2 className="h-4 w-4" />
-                                                {mode === 'create'
-                                                    ? 'Save template'
-                                                    : 'Update template'}
-                                            </Button>
-
-                                            {form.errors &&
-                                                (form.errors as any)
-                                                    .template && (
-                                                    <p className="text-sm text-destructive">
-                                                        {
-                                                            (form.errors as any)
-                                                                .template
-                                                        }
-                                                    </p>
-                                                )}
-                                        </motion.div>
-                                    )}
-                                </AnimatePresence>
-                            </div>
-
-                            <Separator className="my-4" />
-
-                            <div className="flex items-center justify-between">
+                            {step !== 'review' ? (
                                 <Button
                                     type="button"
-                                    variant="outline"
-                                    onClick={goBack}
-                                    disabled={
-                                        step === 'preset' || form.processing
-                                    }
+                                    onClick={goNext}
+                                    disabled={form.processing}
                                     className="rounded-xl"
                                 >
-                                    Back
+                                    Next
                                 </Button>
+                            ) : (
+                                <Button
+                                    type="button"
+                                    onClick={save}
+                                    disabled={form.processing}
+                                    className="gap-2 rounded-xl"
+                                >
+                                    {form.processing && (
+                                        <NiloSpinner size={16} />
+                                    )}
+                                    Save
+                                </Button>
+                            )}
+                        </div>
+                    </Panel>
 
-                                {step !== 'review' ? (
-                                    <Button
-                                        type="button"
-                                        onClick={goNext}
-                                        disabled={form.processing}
-                                        className="rounded-xl"
-                                    >
-                                        Next
-                                    </Button>
-                                ) : (
-                                    <Button
-                                        type="button"
-                                        onClick={save}
-                                        disabled={form.processing}
-                                        className="rounded-xl"
-                                    >
-                                        Save
-                                    </Button>
-                                )}
-                            </div>
-                        </Card>
-
-                        {/* Right: Live Preview */}
-                        <Card className="flex flex-col rounded-2xl border bg-background p-6 shadow-sm lg:col-span-7">
-                            <div className="mb-4 flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <Eye className="h-5 w-5 opacity-80" />
-                                    <div className="text-sm font-semibold">
-                                        Live preview
-                                    </div>
-                                </div>
-                                <div className="text-xs text-muted-foreground">
-                                    {sampleLabel}
+                    {/* Right: Live Preview */}
+                    <Panel className="flex flex-col lg:col-span-7">
+                        <div className="mb-4 flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                                <Eye className="h-5 w-5 opacity-80" />
+                                <div className="text-sm font-semibold">
+                                    Live preview
                                 </div>
                             </div>
-
-                            <div className="flex-1">
-                                <A4PreviewPremium
-                                    documentNumberLabel={documentNumberLabel}
-                                    documentNumberValue={documentNumberValue}
-                                    documentTitle={documentTitle}
-                                    documentType={module.type}
-                                    settings={settings}
-                                    terms={form.data.terms_html}
-                                    footer={form.data.footer_html}
-                                />
+                            <div className="text-xs text-muted-foreground">
+                                {sampleLabel}
                             </div>
-                        </Card>
-                    </div>
-                </motion.div>
-            </SettingsLayout>
+                        </div>
+
+                        <div className="flex-1">
+                            <A4PreviewPremium
+                                documentNumberLabel={documentNumberLabel}
+                                documentNumberValue={documentNumberValue}
+                                documentTitle={documentTitle}
+                                documentType={module.type}
+                                settings={settings}
+                                terms={form.data.terms_html}
+                                footer={form.data.footer_html}
+                            />
+                        </div>
+                    </Panel>
+                </div>
+            </motion.div>
         </AppLayout>
     );
 }
@@ -1139,6 +1169,7 @@ function A4PreviewPremium({
 }) {
     const accent = settings.brand.accent;
     const primary = settings.brand.primary;
+    const headerColor = settings.brand.header || primary;
 
     const fontMap: Record<TemplateSettings['brand']['font'], string> = {
         Inter: 'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif',
@@ -1167,7 +1198,9 @@ function A4PreviewPremium({
               : 'px-8 pt-8 pb-8';
 
     const table = settings.layout.table;
-    const isCenter = settings.layout.header === 'center';
+    const header = settings.layout.header;
+    const isCenter = header === 'center';
+    const isStacked = header === 'center' || header === 'left';
 
     return (
         <div className="flex justify-center">
@@ -1181,13 +1214,15 @@ function A4PreviewPremium({
                         'relative text-white',
                         isCenter ? 'text-center' : 'text-left',
                     )}
-                    style={{ backgroundColor: primary }}
+                    style={{ backgroundColor: headerColor }}
                 >
                     <div className={cn(pad, 'relative z-10 pb-16')}>
                         <div
                             className={cn(
                                 'flex items-start justify-between gap-6',
-                                isCenter && 'flex-col items-center',
+                                isStacked && 'flex-col',
+                                isCenter && 'items-center',
+                                header === 'left' && 'items-start',
                             )}
                         >
                             <div
@@ -1232,7 +1267,9 @@ function A4PreviewPremium({
                             <div
                                 className={cn(
                                     'shrink-0',
-                                    isCenter ? 'text-center' : 'text-right',
+                                    header === 'center' && 'text-center',
+                                    header === 'left' && 'text-left',
+                                    header === 'split' && 'text-right',
                                 )}
                             >
                                 <div className="text-3xl font-extrabold tracking-[0.18em]">
@@ -1243,7 +1280,9 @@ function A4PreviewPremium({
                                         {documentNumberLabel}:{' '}
                                         {documentNumberValue}
                                     </div>
-                                    <div>Date: {SAMPLE.document.issue_date}</div>
+                                    <div>
+                                        Date: {SAMPLE.document.issue_date}
+                                    </div>
                                     <div>Due: {SAMPLE.document.due_date}</div>
                                 </div>
                             </div>

@@ -1,14 +1,17 @@
-export default function AppLogo() {
+import AppLogoIcon from '@/components/app-logo-icon';
+import { cn } from '@/lib/utils';
+
+interface AppLogoProps {
+    className?: string;
+}
+
+export default function AppLogo({ className }: AppLogoProps) {
     return (
-        <>
-            <div className="flex aspect-square size-8 items-center justify-center rounded-md bg-sidebar-primary text-sidebar-primary-foreground">
-                {/* <AppLogoIcon className="size-5 fill-current text-white dark:text-black" /> */}
-            </div>
-            <div className="ml-1 grid flex-1 text-left text-sm">
-                <span className="mb-0.5 truncate leading-tight font-semibold">
-                    Nilo
-                </span>
-            </div>
-        </>
+        <AppLogoIcon
+            className={cn(
+                'h-5 w-auto dark:brightness-0 dark:invert',
+                className,
+            )}
+        />
     );
 }

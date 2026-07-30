@@ -1,223 +1,181 @@
+import AppLogo from '@/components/app-logo';
+import { useAppearance } from '@/hooks/use-appearance';
+import { cn } from '@/lib/utils';
+import { dashboard, home, register } from '@/routes';
 import type { Auth } from '@/types';
-import { usePage } from '@inertiajs/react';
+import { Link, usePage } from '@inertiajs/react';
 import { Menu, Moon, Sun, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
-import AppLogo from '../app-logo';
 
-// Dummy NavLink for demonstration; replace with your router/link component if needed
-const NavLink = ({ href, children, ...props }: any) => (
-    <a
-        href={href}
-        className="transition-colors duration-200 hover:text-[#00417d]"
-        {...props}
-    >
-        {children}
-    </a>
-);
+const sections = [
+    { href: '#features', label: 'How it works' },
+    { href: '#pricing', label: 'Pricing' },
+    { href: '#contact', label: 'Support' },
+];
 
-const Nav: React.FC = () => {
+export default function Nav() {
     const { auth } = usePage<{ auth?: Auth }>().props;
+    const { appearance, updateAppearance } = useAppearance();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const [scrollY, setScrollY] = useState(0);
-    const [darkMode, setDarkMode] = useState(false);
+    const [scrolled, setScrolled] = useState(false);
+    const [isDark, setIsDark] = useState(false);
 
     useEffect(() => {
-        const handleScroll = () => setScrollY(window.scrollY);
-        window.addEventListener('scroll', handleScroll);
+        const handleScroll = () => setScrolled(window.scrollY > 50);
+        handleScroll();
+        window.addEventListener('scroll', handleScroll, { passive: true });
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
 
     useEffect(() => {
-        const savedTheme =
-            typeof window !== 'undefined'
-                ? localStorage.getItem('theme')
-                : null;
-        const prefersDark =
-            typeof window !== 'undefined'
-                ? window.matchMedia('(prefers-color-scheme: dark)').matches
-                : false;
-        if (savedTheme === 'dark' || (!savedTheme && prefersDark)) {
-            setDarkMode(true);
-            if (typeof document !== 'undefined') {
-                document.documentElement.classList.add('dark');
-            }
-        }
-    }, []);
+        setIsDark(document.documentElement.classList.contains('dark'));
+    }, [appearance]);
 
-    const toggleDarkMode = () => {
-        setDarkMode(!darkMode);
-        if (typeof window !== 'undefined' && typeof document !== 'undefined') {
-            if (!darkMode) {
-                document.documentElement.classList.add('dark');
-                localStorage.setItem('theme', 'dark');
-            } else {
-                document.documentElement.classList.remove('dark');
-                localStorage.setItem('theme', 'light');
-            }
-        }
-    };
+    const toggleTheme = () => updateAppearance(isDark ? 'light' : 'dark');
 
-    const scrollToSection = (sectionId: string) => {
-        document
-            .getElementById(sectionId)
-            ?.scrollIntoView({ behavior: 'smooth' });
-        setMobileMenuOpen(false);
-    };
+    const onDark = !scrolled;
+    const linkClass = onDark
+        ? 'text-white/80 hover:text-white'
+        : 'text-foreground/70 hover:text-foreground';
 
     return (
-        <div className="bg-white transition-colors duration-300 dark:bg-slate-900">
-            {/* Navigation */}
-            <nav
-                className={`fixed top-0 z-50 w-full transition-all duration-300 ${
-                    scrollY > 50
-                        ? 'bg-white/95 shadow-lg backdrop-blur-md dark:bg-slate-900/95'
-                        : 'bg-transparent'
-                }`}
-            >
-                <div className="mx-auto max-w-7xl px-6 py-4">
-                    <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-3">
-                            <AppLogo />
-                        </div>
-
-                        {/* Desktop Navigation */}
-                        <div className="hidden items-center space-x-6 md:flex">
-                            <NavLink href="#about">About</NavLink>
-                            <NavLink href="#features">How It Works</NavLink>
-                            <NavLink href="#pricing">Pricing</NavLink>
-                            <NavLink href="#contact">Contact</NavLink>
-                            {auth && auth.user ? (
-                                <>
-                                    <NavLink
-                                        href="/dashboard"
-                                        className="bg- rounded-lg bg-[#00417d] px-4 py-2 font-semibold text-white transition-colors duration-200 hover:bg-blue-800 dark:bg-[#00417d]"
-                                    >
-                                        Dashboard
-                                    </NavLink>
-                                </>
-                            ) : (
-                                <>
-                                    <NavLink
-                                        href="/login"
-                                        className="rounded-lg border border-[#00417d] px-4 py-2 font-semibold text-[#00417d] transition-colors duration-200 hover:bg-[#00417d] hover:text-white"
-                                    >
-                                        Login
-                                    </NavLink>
-                                    <NavLink
-                                        href="/register"
-                                        className="rounded-lg bg-[#00417d] px-4 py-2 font-semibold text-white transition-colors duration-200 hover:bg-blue-800"
-                                    >
-                                        Register
-                                    </NavLink>
-                                </>
+        <nav
+            className={`fixed top-0 z-50 w-full transition-all duration-300 ${
+                scrolled
+                    ? 'border-b border-border bg-background/90 shadow-md shadow-brand-950/5 backdrop-blur-xl'
+                    : 'bg-transparent'
+            }`}
+        >
+            <div className="mx-auto max-w-7xl px-6 pt-2">
+                <div className="flex h-16 items-center justify-between">
+                    <Link href={home()} aria-label="Nilo home">
+                        <AppLogo
+                            className={cn(
+                                'transition-all duration-300',
+                                onDark && 'brightness-0 invert',
                             )}
-                            <button
-                                onClick={toggleDarkMode}
-                                className="rounded-lg bg-slate-100 p-2 transition-colors duration-300 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700"
-                            >
-                                {darkMode ? (
-                                    <Sun className="h-5 w-5 text-yellow-500" />
-                                ) : (
-                                    <Moon className="h-5 w-5 text-slate-600" />
-                                )}
-                            </button>
-                        </div>
+                        />
+                    </Link>
 
-                        {/* Mobile Menu Button */}
+                    <div className="hidden items-center gap-8 md:flex">
+                        {sections.map((item) => (
+                            <a
+                                key={item.href}
+                                href={item.href}
+                                className={`text-sm font-medium transition-colors duration-200 ${linkClass}`}
+                            >
+                                {item.label}
+                            </a>
+                        ))}
+
+                        {auth?.user ? (
+                            <Link
+                                href={dashboard()}
+                                className={`rounded-lg px-5 py-2.5 text-sm font-semibold shadow-md shadow-brand-950/20 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 ${
+                                    onDark
+                                        ? 'bg-white text-brand-900 hover:bg-brand-100'
+                                        : 'bg-brand text-white hover:bg-brand-700'
+                                }`}
+                            >
+                                Dashboard
+                            </Link>
+                        ) : (
+                            <Link
+                                href={register()}
+                                className={`rounded-lg px-5 py-2.5 text-sm font-semibold shadow-md shadow-brand-950/20 transition-all duration-300 hover:-translate-y-0.5 active:translate-y-0 ${
+                                    onDark
+                                        ? 'bg-white text-brand-900 hover:bg-brand-100'
+                                        : 'bg-brand text-white hover:bg-brand-700'
+                                }`}
+                            >
+                                Get started
+                            </Link>
+                        )}
+
                         <button
-                            className="md:hidden"
-                            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                            type="button"
+                            onClick={toggleTheme}
+                            aria-label={
+                                isDark
+                                    ? 'Switch to light mode'
+                                    : 'Switch to dark mode'
+                            }
+                            className={`cursor-pointer rounded-lg p-2 transition-colors duration-200 ${linkClass}`}
                         >
-                            {mobileMenuOpen ? (
-                                <X className="h-6 w-6 text-slate-800 dark:text-white" />
+                            {isDark ? (
+                                <Sun className="h-5 w-5" />
                             ) : (
-                                <Menu className="h-6 w-6 text-slate-800 dark:text-white" />
+                                <Moon className="h-5 w-5" />
                             )}
                         </button>
                     </div>
 
-                    {/* Mobile Menu */}
-                    {mobileMenuOpen && (
-                        <div className="mt-4 rounded-2xl border border-slate-100 bg-white py-4 shadow-xl md:hidden dark:border-slate-700 dark:bg-slate-800">
-                            <div className="flex flex-col space-y-4 px-6">
-                                {auth && auth.user ? (
-                                    <>
-                                        <NavLink
-                                            href="/dashboard"
-                                            className="rounded-lg bg-[#00417d] px-4 py-2 font-semibold text-white transition-colors duration-200 hover:bg-blue-800"
-                                        >
-                                            Dashboard
-                                        </NavLink>
-                                    </>
-                                ) : (
-                                    <>
-                                        <NavLink
-                                            href="/login"
-                                            className="rounded-lg border border-[#00417d] px-4 py-2 font-semibold text-[#00417d] transition-colors duration-200 hover:bg-[#00417d] hover:text-white"
-                                        >
-                                            Login
-                                        </NavLink>
-                                        <NavLink
-                                            href="/register"
-                                            className="rounded-lg bg-[#00417d] px-4 py-2 font-semibold text-white transition-colors duration-200 hover:bg-blue-800"
-                                        >
-                                            Register
-                                        </NavLink>
-                                    </>
-                                )}
-                                <NavLink
-                                    href="#about"
-                                    onClick={() => scrollToSection('about')}
+                    <button
+                        type="button"
+                        className={`cursor-pointer p-2 md:hidden ${onDark ? 'text-white' : 'text-foreground'}`}
+                        onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                        aria-label={mobileMenuOpen ? 'Close menu' : 'Open menu'}
+                    >
+                        {mobileMenuOpen ? (
+                            <X className="h-6 w-6" />
+                        ) : (
+                            <Menu className="h-6 w-6" />
+                        )}
+                    </button>
+                </div>
+
+                {mobileMenuOpen && (
+                    <div className="mb-4 rounded-2xl border border-border bg-background py-4 shadow-xl shadow-brand-950/10 md:hidden">
+                        <div className="flex flex-col gap-4 px-6">
+                            {sections.map((item) => (
+                                <a
+                                    key={item.href}
+                                    href={item.href}
+                                    onClick={() => setMobileMenuOpen(false)}
+                                    className="text-sm font-medium text-foreground/80 transition-colors hover:text-foreground"
                                 >
-                                    About
-                                </NavLink>
-                                <NavLink
-                                    href="#features"
-                                    onClick={() => scrollToSection('features')}
-                                >
-                                    How It Works
-                                </NavLink>
-                                <NavLink
-                                    href="#pricing"
-                                    onClick={() => scrollToSection('pricing')}
-                                >
-                                    Pricing
-                                </NavLink>
-                                <NavLink
-                                    href="#contact"
-                                    onClick={() => scrollToSection('contact')}
-                                >
-                                    Contact
-                                </NavLink>
-                                <div className="flex items-center justify-between border-t border-slate-200 pt-4 dark:border-slate-600">
-                                    <span className="text-slate-600 dark:text-slate-300">
-                                        Dark Mode
-                                    </span>
-                                    <button
-                                        onClick={toggleDarkMode}
-                                        className="rounded-lg bg-slate-100 p-2 transition-colors duration-300 hover:bg-slate-200 dark:bg-slate-700 dark:hover:bg-slate-600"
+                                    {item.label}
+                                </a>
+                            ))}
+
+                            <div className="flex items-center justify-between border-t border-border pt-4">
+                                {auth?.user ? (
+                                    <Link
+                                        href={dashboard()}
+                                        className="rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-900/20 transition-all duration-300 hover:-translate-y-0.5 hover:bg-brand-700 active:translate-y-0"
                                     >
-                                        {darkMode ? (
-                                            <Sun className="h-5 w-5 text-yellow-500" />
-                                        ) : (
-                                            <Moon className="h-5 w-5 text-slate-600 dark:text-slate-300" />
-                                        )}
-                                    </button>
-                                </div>
-                                {/* Removed duplicate button */}
+                                        Dashboard
+                                    </Link>
+                                ) : (
+                                    <Link
+                                        href={register()}
+                                        className="rounded-lg bg-brand px-5 py-2.5 text-sm font-semibold text-white shadow-md shadow-brand-900/20 transition-all duration-300 hover:-translate-y-0.5 hover:bg-brand-700 active:translate-y-0"
+                                    >
+                                        Get started
+                                    </Link>
+                                )}
+
                                 <button
-                                    className="mt-4 rounded-full bg-[#00417d] px-6 py-3 font-semibold text-white transition-all duration-300 hover:bg-blue-800 dark:bg-[#00417d] dark:hover:bg-blue-900"
-                                    onClick={() => scrollToSection('pricing')}
+                                    type="button"
+                                    onClick={toggleTheme}
+                                    aria-label={
+                                        isDark
+                                            ? 'Switch to light mode'
+                                            : 'Switch to dark mode'
+                                    }
+                                    className="cursor-pointer p-2 text-foreground/70 hover:text-foreground"
                                 >
-                                    Start Free Trial
+                                    {isDark ? (
+                                        <Sun className="h-5 w-5" />
+                                    ) : (
+                                        <Moon className="h-5 w-5" />
+                                    )}
                                 </button>
                             </div>
                         </div>
-                    )}
-                </div>
-            </nav>
-        </div>
+                    </div>
+                )}
+            </div>
+        </nav>
     );
-};
-
-export default Nav;
+}

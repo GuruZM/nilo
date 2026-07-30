@@ -2,15 +2,19 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\FreezesExchangeRate;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Quotation extends Model
 {
+    use FreezesExchangeRate;
+
     protected $fillable = [
         'company_id',
         'client_id',
+        'quotation_template_id',
         'created_by',
         'number',
         'reference',
@@ -20,7 +24,9 @@ class Quotation extends Model
         'currency_code',
         'subtotal',
         'discount_total',
+        'quotation_discount',
         'tax_total',
+        'tax_percent',
         'total',
         'status',
         'notes',
@@ -34,8 +40,12 @@ class Quotation extends Model
             'valid_until' => 'date',
             'subtotal' => 'decimal:2',
             'discount_total' => 'decimal:2',
+            'quotation_discount' => 'decimal:2',
             'tax_total' => 'decimal:2',
+            'tax_percent' => 'decimal:2',
             'total' => 'decimal:2',
+            'exchange_rate_to_base' => 'float',
+            'exchange_rate_fetched_at' => 'datetime',
         ];
     }
 
@@ -53,6 +63,14 @@ class Quotation extends Model
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class);
+    }
+
+    /**
+     * The template controlling how this quotation is presented.
+     */
+    public function template(): BelongsTo
+    {
+        return $this->belongsTo(InvoiceTemplate::class, 'quotation_template_id');
     }
 
     /**

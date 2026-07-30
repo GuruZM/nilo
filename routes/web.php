@@ -1,19 +1,67 @@
-
 <?php
 
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\CurrencyController;
+use App\Http\Controllers\EnterpriseInquiryController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceTemplateController;
+use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\SubscriptionController;
+use App\Models\Plan;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::get('/', function () {
-    return Inertia::render('welcome');
+    return Inertia::render('welcome', [
+        'plans' => Plan::query()->publiclyAvailable()->get(),
+    ]);
 })->name('home');
 
+Route::get('/terms', fn () => Inertia::render('terms'))->name('terms');
+Route::get('/privacy', fn () => Inertia::render('privacy'))->name('privacy');
+
+// Subscription routes (auth required, but NO subscription required)
 Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('/subscription/select', [SubscriptionController::class, 'select'])->name('subscription.select');
+    Route::post('/subscription/subscribe', [SubscriptionController::class, 'subscribe'])->name('subscription.subscribe');
+    Route::get('/subscription', [SubscriptionController::class, 'current'])->name('subscription.current');
+    Route::get('/subscription/payment/{plan}', [PaymentController::class, 'create'])->name('subscription.payment');
+    Route::post('/subscription/payment', [PaymentController::class, 'store'])->name('subscription.payment.store');
+    Route::post('/subscription/redeem', [PaymentController::class, 'redeem'])->name('subscription.redeem');
+    Route::get('/subscription/payment-status', [PaymentController::class, 'status'])->name('subscription.payment.status');
+    Route::get('/subscription/enterprise', [EnterpriseInquiryController::class, 'create'])->name('subscription.enterprise');
+    Route::post('/subscription/enterprise', [EnterpriseInquiryController::class, 'store'])->name('subscription.enterprise.store');
+});
+
+// Admin routes (auth + admin role, no subscription required)
+Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\DashboardController::class, 'index'])->name('dashboard');
+    Route::get('/users', [\App\Http\Controllers\Admin\UserController::class, 'index'])->name('users.index');
+    Route::get('/users/{user}', [\App\Http\Controllers\Admin\UserController::class, 'show'])->name('users.show');
+    Route::post('/users/{user}/subscription', [\App\Http\Controllers\Admin\UserController::class, 'updateSubscription'])->name('users.subscription.update');
+    Route::get('/plans', [\App\Http\Controllers\Admin\PlanController::class, 'index'])->name('plans.index');
+    Route::get('/plans/create', [\App\Http\Controllers\Admin\PlanController::class, 'create'])->name('plans.create');
+    Route::post('/plans', [\App\Http\Controllers\Admin\PlanController::class, 'store'])->name('plans.store');
+    Route::get('/plans/{plan}/edit', [\App\Http\Controllers\Admin\PlanController::class, 'edit'])->name('plans.edit');
+    Route::put('/plans/{plan}', [\App\Http\Controllers\Admin\PlanController::class, 'update'])->name('plans.update');
+    Route::delete('/plans/{plan}', [\App\Http\Controllers\Admin\PlanController::class, 'destroy'])->name('plans.destroy');
+    Route::get('/coupons', [\App\Http\Controllers\Admin\CouponController::class, 'index'])->name('coupons.index');
+    Route::get('/coupons/create', [\App\Http\Controllers\Admin\CouponController::class, 'create'])->name('coupons.create');
+    Route::post('/coupons', [\App\Http\Controllers\Admin\CouponController::class, 'store'])->name('coupons.store');
+    Route::get('/coupons/{coupon}/edit', [\App\Http\Controllers\Admin\CouponController::class, 'edit'])->name('coupons.edit');
+    Route::put('/coupons/{coupon}', [\App\Http\Controllers\Admin\CouponController::class, 'update'])->name('coupons.update');
+    Route::delete('/coupons/{coupon}', [\App\Http\Controllers\Admin\CouponController::class, 'destroy'])->name('coupons.destroy');
+    Route::get('/payments', [\App\Http\Controllers\Admin\PaymentController::class, 'index'])->name('payments.index');
+    Route::get('/payments/{payment}', [\App\Http\Controllers\Admin\PaymentController::class, 'show'])->name('payments.show');
+    Route::post('/payments/{payment}/confirm', [\App\Http\Controllers\Admin\PaymentController::class, 'confirm'])->name('payments.confirm');
+    Route::post('/payments/{payment}/reject', [\App\Http\Controllers\Admin\PaymentController::class, 'reject'])->name('payments.reject');
+    Route::get('/inquiries', [\App\Http\Controllers\Admin\InquiryController::class, 'index'])->name('inquiries.index');
+    Route::post('/inquiries/{inquiry}/handle', [\App\Http\Controllers\Admin\InquiryController::class, 'handle'])->name('inquiries.handle');
+});
+
+// Main app routes (auth + verified + subscription required)
+Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
     Route::get('dashboard', [\App\Http\Controllers\DashboardController::class, 'index'])->name('dashboard');
 
     // Company management
@@ -23,18 +71,26 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::match(['PUT', 'POST'], '/companies/{company}', [CompanyController::class, 'update'])
         ->whereNumber('company')
         ->name('companies.update');
+
+    // Compliance documents
+    Route::prefix('companies/{company}/documents')
+        ->name('companies.documents.')
+        ->whereNumber('company')
+        ->scopeBindings()
+        ->group(function () {
+            Route::post('/', [\App\Http\Controllers\CompanyDocumentController::class, 'store'])->name('store');
+            Route::get('/{document}/download', [\App\Http\Controllers\CompanyDocumentController::class, 'download'])->name('download');
+            Route::delete('/{document}', [\App\Http\Controllers\CompanyDocumentController::class, 'destroy'])->name('destroy');
+        });
     // Invoice management
     Route::prefix('invoices')->name('invoices.')->group(function () {
         Route::get('/', [InvoiceController::class, 'index'])->name('index');
         Route::get('/create', [InvoiceController::class, 'create'])->name('create');
         Route::post('/', [InvoiceController::class, 'store'])->name('store');
 
-        // ✅ Preview BEFORE saving (HTML) — avoids the "preview" bigint bug
-        // Your UI can: window.open(route('invoices.preview.new', qs), '_blank')
         Route::match(['GET', 'POST'], '/preview', [InvoiceController::class, 'previewNew'])
             ->name('preview.new');
 
-        // ✅ Saved invoice routes
         Route::get('/{invoice}', [InvoiceController::class, 'show'])
             ->whereNumber('invoice')
             ->name('show');
@@ -51,7 +107,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
             ->whereNumber('invoice')
             ->name('destroy');
 
-        // ✅ Actions on saved invoice
         Route::post('/{invoice}/status', [InvoiceController::class, 'updateStatus'])
             ->whereNumber('invoice')
             ->name('status');
@@ -70,6 +125,25 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/', [\App\Http\Controllers\QuotationController::class, 'index'])->name('index');
         Route::get('/create', [\App\Http\Controllers\QuotationController::class, 'create'])->name('create');
         Route::post('/', [\App\Http\Controllers\QuotationController::class, 'store'])->name('store');
+
+        Route::match(['GET', 'POST'], '/preview', [\App\Http\Controllers\QuotationController::class, 'previewNew'])
+            ->name('preview.new');
+
+        Route::get('/{quotation}', [\App\Http\Controllers\QuotationController::class, 'show'])
+            ->whereNumber('quotation')
+            ->name('show');
+
+        Route::post('/{quotation}/status', [\App\Http\Controllers\QuotationController::class, 'updateStatus'])
+            ->whereNumber('quotation')
+            ->name('status');
+
+        Route::get('/{quotation}/preview', [\App\Http\Controllers\QuotationController::class, 'preview'])
+            ->whereNumber('quotation')
+            ->name('preview');
+
+        Route::get('/{quotation}/print', [\App\Http\Controllers\QuotationController::class, 'print'])
+            ->whereNumber('quotation')
+            ->name('print');
     });
 
     // Client management
@@ -82,6 +156,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // currencies
     Route::get('/settings/currencies', [CurrencyController::class, 'index']);
     Route::post('/currencies/switch', [CurrencyController::class, 'switch']);
+    Route::post('/currencies/active', [CurrencyController::class, 'updateActive'])->name('currencies.active');
+    Route::post('/currencies/rates/sync', [CurrencyController::class, 'syncRates'])->name('currencies.rates.sync');
+    Route::post('/currencies/{code}/rate', [CurrencyController::class, 'storeRate'])
+        ->where('code', '[A-Za-z]{3}')
+        ->name('currencies.rate.store');
+    Route::delete('/currencies/{code}/rate', [CurrencyController::class, 'destroyRate'])
+        ->where('code', '[A-Za-z]{3}')
+        ->name('currencies.rate.destroy');
     Route::post('/currencies', [CurrencyController::class, 'store']);
     Route::put('/currencies/{currency}', [CurrencyController::class, 'update']);
     Route::delete('/currencies/{currency}', [CurrencyController::class, 'destroy']);

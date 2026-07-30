@@ -35,4 +35,35 @@ return [
         ],
     ],
 
+    /*
+     * Daily FX rates. A free key removes the attribution requirement that the
+     * keyless open endpoint carries; without one we fall back to that endpoint.
+     */
+    'exchangerate' => [
+        'key' => env('EXCHANGERATE_API_KEY'),
+        'keyed_url' => env('EXCHANGERATE_KEYED_URL', 'https://v6.exchangerate-api.com/v6'),
+        'open_url' => env('EXCHANGERATE_OPEN_URL', 'https://open.er-api.com/v6/latest'),
+        'timeout' => env('EXCHANGERATE_TIMEOUT', 15),
+    ],
+
+    'google' => [
+        'client_id' => env('GOOGLE_CLIENT_ID'),
+        'client_secret' => env('GOOGLE_CLIENT_SECRET'),
+        'redirect' => env('GOOGLE_REDIRECT_URI'),
+    ],
+
+    'facebook' => [
+        'enabled' => env('FACEBOOK_ENABLED', false),
+        'client_id' => env('FACEBOOK_CLIENT_ID'),
+        'client_secret' => env('FACEBOOK_CLIENT_SECRET'),
+        'redirect' => env('FACEBOOK_REDIRECT_URI'),
+    ],
+
+    'linkedin-openid' => [
+        'enabled' => env('LINKEDIN_ENABLED', false),
+        'client_id' => env('LINKEDIN_CLIENT_ID'),
+        'client_secret' => env('LINKEDIN_CLIENT_SECRET'),
+        'redirect' => env('LINKEDIN_REDIRECT_URI'),
+    ],
+
 ];

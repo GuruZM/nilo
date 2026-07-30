@@ -14,10 +14,12 @@ export default function AppSidebarLayout({
             <AppSidebar />
             <AppContent
                 variant="sidebar"
-                className="overflow-x-hidden shadow-lg"
+                className="overflow-x-hidden bg-canvas md:m-2 md:min-h-[calc(100svh-(--spacing(4)))] md:rounded-xl"
             >
                 <AppSidebarHeader breadcrumbs={breadcrumbs} />
-                {children}
+                <div className="mx-auto w-full max-w-[1400px] px-3">
+                    {children}
+                </div>
             </AppContent>
         </AppShell>
     );

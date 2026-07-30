@@ -41,7 +41,110 @@ expect()->extend('toBeOne', function () {
 |
 */
 
-function something()
+/**
+ * A user with an active company, an invoice template and one client, which is
+ * the minimum state the invoice create endpoint accepts.
+ *
+ * @return array{0: \App\Models\User, 1: \App\Models\Client, 2: \App\Models\InvoiceTemplate}
+ */
+function invoiceCreationContext(?string $clientEmail): array
 {
-    // ..
+    $user = App\Models\User::factory()->withSubscription()->create();
+    $company = App\Models\Company::factory()->create(['currency_code' => 'ZMW']);
+
+    $user->companies()->attach($company->id, [
+        'is_owner' => true,
+        'status' => 'active',
+    ]);
+    $user->forceFill(['current_company_id' => $company->id])->save();
+
+    $client = App\Models\Client::factory()->create([
+        'company_id' => $company->id,
+        'email' => $clientEmail,
+    ]);
+
+    $template = App\Models\InvoiceTemplate::create([
+        'company_id' => $company->id,
+        'name' => 'Default',
+        'type' => 'invoice',
+        'is_default' => true,
+        'settings' => [],
+    ]);
+
+    return [$user, $client, $template];
+}
+
+/**
+ * The quotation equivalent of {@see invoiceCreationContext()} — the template is
+ * scoped to the quotation type, which is what the create endpoint requires.
+ *
+ * @return array{0: \App\Models\User, 1: \App\Models\Client, 2: \App\Models\InvoiceTemplate}
+ */
+function quotationCreationContext(?string $clientEmail): array
+{
+    [$user, $client] = invoiceCreationContext($clientEmail);
+
+    $template = App\Models\InvoiceTemplate::create([
+        'company_id' => $user->current_company_id,
+        'name' => 'Default quotation',
+        'type' => 'quotation',
+        'is_default' => true,
+        'settings' => [],
+    ]);
+
+    return [$user, $client, $template];
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function quotationPayload(App\Models\Client $client, App\Models\InvoiceTemplate $template, bool $sendToClient): array
+{
+    return [
+        'client_id' => $client->id,
+        'quotation_template_id' => $template->id,
+        'issue_date' => '2026-07-01',
+        'valid_until' => '2026-07-31',
+        'currency_code' => 'ZMW',
+        'status' => 'draft',
+        'quotation_discount' => 0,
+        'tax_percent' => 0,
+        'send_to_client' => $sendToClient,
+        'items' => [
+            [
+                'description' => 'Consulting',
+                'quantity' => 2,
+                'unit_price' => 500,
+                'discount' => 0,
+            ],
+        ],
+    ];
+}
+
+/**
+ * @return array<string, mixed>
+ */
+function invoicePayload(App\Models\Client $client, App\Models\InvoiceTemplate $template, bool $sendToClient): array
+{
+    return [
+        'client_id' => $client->id,
+        'invoice_template_id' => $template->id,
+        'issue_date' => '2026-07-01',
+        'due_date' => '2026-07-31',
+        'currency_code' => 'ZMW',
+        'status' => 'pending',
+        'has_delivery_note' => false,
+        'is_recurring' => false,
+        'invoice_discount' => 0,
+        'tax_percent' => 0,
+        'send_to_client' => $sendToClient,
+        'items' => [
+            [
+                'description' => 'Consulting',
+                'quantity' => 2,
+                'unit_price' => 500,
+                'discount' => 0,
+            ],
+        ],
+    ];
 }

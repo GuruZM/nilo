@@ -16,5 +16,15 @@ export function AppShell({ children, variant = 'header' }: AppShellProps) {
         );
     }
 
-    return <SidebarProvider defaultOpen={isOpen}>{children}</SidebarProvider>;
+    return (
+        <div className="min-h-svh w-full bg-canvas">
+            <SidebarProvider
+                defaultOpen={isOpen}
+                style={{ '--sidebar-width': '17rem' } as React.CSSProperties}
+                className="bg-canvas md:mx-auto md:w-4/5"
+            >
+                {children}
+            </SidebarProvider>
+        </div>
+    );
 }

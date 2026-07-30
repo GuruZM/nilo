@@ -3,6 +3,9 @@
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\EmailVerificationNotificationController;
 use App\Http\Controllers\Auth\EmailVerificationPromptController;
+use App\Http\Controllers\Auth\FacebookController;
+use App\Http\Controllers\Auth\GoogleController;
+use App\Http\Controllers\Auth\LinkedInController;
 use App\Http\Controllers\Auth\NewPasswordController;
 use App\Http\Controllers\Auth\PasswordResetLinkController;
 use App\Http\Controllers\Auth\RegisteredUserController;
@@ -33,7 +36,33 @@ Route::middleware('guest')->group(function () {
 
     Route::post('reset-password', [NewPasswordController::class, 'store'])
         ->name('password.store');
+
+    Route::get('auth/google', [GoogleController::class, 'redirect'])
+        ->name('google.redirect');
+
+    Route::get('auth/facebook', [FacebookController::class, 'redirect'])
+        ->name('facebook.redirect');
+
+    Route::get('auth/linkedin', [LinkedInController::class, 'redirect'])
+        ->name('linkedin.redirect');
+
+    Route::get('auth/linkedin/callback', [LinkedInController::class, 'callback'])
+        ->name('linkedin.callback');
 });
+
+/*
+ * Each provider gets one redirect URI registered with it, and these are they.
+ * They are deliberately outside the `guest` group: a signed-in user comes back
+ * through here when re-authenticating to confirm their identity, and `guest`
+ * would bounce them to the dashboard before the controller ever ran. The
+ * controllers turn away signed-in users who have no confirmation in flight, so
+ * the sign-in path stays guest-only in effect.
+ */
+Route::get('auth/google/callback', [GoogleController::class, 'callback'])
+    ->name('google.callback');
+
+Route::get('auth/facebook/callback', [FacebookController::class, 'callback'])
+    ->name('facebook.callback');
 
 Route::middleware('auth')->group(function () {
     Route::get('verify-email', EmailVerificationPromptController::class)

@@ -4,26 +4,20 @@ import Hero from '@/components/hero/Hero';
 import HowItWorks from '@/components/hero/HowItWorks';
 import Nav from '@/components/hero/Nav';
 import Pricing from '@/components/hero/Pricing';
-import { type SharedData } from '@/types/index.d';
-import { Head, usePage } from '@inertiajs/react';
+import Support from '@/components/hero/Support';
+import { type Plan } from '@/types';
+import { Head } from '@inertiajs/react';
 
-export default function Welcome() {
-    const { auth } = usePage<SharedData>().props;
-
+export default function Welcome({ plans }: { plans: Plan[] }) {
     return (
         <>
-            <Head title="Welcome">
-                <link rel="preconnect" href="https://fonts.bunny.net" />
-                <link
-                    href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600"
-                    rel="stylesheet"
-                />
-            </Head>
+            <Head title="Invoicing, quotations, and payments in one place" />
             <Nav />
             <Hero />
             <About />
             <HowItWorks />
-            <Pricing />
+            <Pricing plans={plans} />
+            <Support />
             <Footer />
         </>
     );

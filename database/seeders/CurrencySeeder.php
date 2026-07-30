@@ -2,29 +2,38 @@
 
 namespace Database\Seeders;
 
-use Illuminate\Database\Console\Seeds\WithoutModelEvents;
+use App\Models\Currency;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\DB;
+
 class CurrencySeeder extends Seeder
 {
+    /**
+     * Currencies switched on for a fresh install. Everything else in the
+     * ISO 4217 catalog is seeded inactive, ready to be ticked in settings.
+     *
+     * @var list<string>
+     */
+    protected const DEFAULT_ACTIVE = ['ZMW', 'USD', 'ZAR', 'EUR', 'GBP'];
+
     /**
      * Run the database seeds.
      */
     public function run(): void
     {
-          $rows = [
-            ['code' => 'ZMW', 'name' => 'Zambian Kwacha', 'symbol' => 'K', 'precision' => 2, 'is_active' => true],
-            ['code' => 'USD', 'name' => 'US Dollar', 'symbol' => '$', 'precision' => 2, 'is_active' => true],
-            ['code' => 'ZAR', 'name' => 'South African Rand', 'symbol' => 'R', 'precision' => 2, 'is_active' => true],
-            ['code' => 'EUR', 'name' => 'Euro', 'symbol' => '€', 'precision' => 2, 'is_active' => true],
-            ['code' => 'GBP', 'name' => 'British Pound', 'symbol' => '£', 'precision' => 2, 'is_active' => true],
-        ];
+        $this->callSilent('currencies:sync');
 
-        foreach ($rows as $r) {
-            DB::table('currencies')->updateOrInsert(
-                ['code' => $r['code']],
-                $r + ['updated_at' => now(), 'created_at' => now()]
-            );
-        }
+        Currency::query()
+            ->whereIn('code', self::DEFAULT_ACTIVE)
+            ->update(['is_active' => true]);
+    }
+
+    /**
+     * Run an Artisan command without echoing its output through the seeder.
+     */
+    protected function callSilent(string $command): void
+    {
+        $this->command
+            ? $this->command->callSilent($command)
+            : \Illuminate\Support\Facades\Artisan::call($command);
     }
 }

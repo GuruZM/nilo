@@ -117,6 +117,7 @@ return [
     'limiters' => [
         'login' => 'login',
         'two-factor' => 'two-factor',
+        'passkeys' => 'passkeys',
     ],
 
     /*
@@ -131,6 +132,24 @@ return [
     */
 
     'views' => true,
+
+    /*
+    |--------------------------------------------------------------------------
+    | Passkeys
+    |--------------------------------------------------------------------------
+    |
+    | These options configure the WebAuthn ceremonies Fortify performs when
+    | registering and authenticating passkeys. The relying party ID must
+    | match the domain the application is actually served from.
+    |
+    */
+
+    'passkeys' => [
+        'relying_party_id' => parse_url((string) env('APP_URL', 'http://localhost'), PHP_URL_HOST),
+        'allowed_origins' => [env('APP_URL', 'http://localhost')],
+        'user_handle_secret' => env('PASSKEYS_USER_HANDLE_SECRET', env('APP_KEY')),
+        'timeout' => 60000,
+    ],
 
     /*
     |--------------------------------------------------------------------------
@@ -153,6 +172,9 @@ return [
             'confirm' => true,
             'confirmPassword' => true,
             // 'window' => 0
+        ]),
+        Features::passkeys([
+            'confirmPassword' => true,
         ]),
     ],
 
