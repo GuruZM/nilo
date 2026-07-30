@@ -8,9 +8,11 @@ use App\Models\Company;
 use App\Models\Currency;
 use App\Models\Invoice;
 use App\Models\InvoiceItem;
+use App\Models\InvoicePayment;
 use App\Models\InvoiceTemplate;
 use App\Services\DocumentPrerequisites;
 use App\Services\InvoiceDocumentRenderer;
+use App\Services\InvoiceSettlement;
 use App\Services\SubscriptionLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -24,7 +26,10 @@ use Inertia\Inertia;
 
 class InvoiceController extends Controller
 {
-    public function __construct(private InvoiceDocumentRenderer $documents) {}
+    public function __construct(
+        private InvoiceDocumentRenderer $documents,
+        private InvoiceSettlement $settlement,
+    ) {}
 
     private function resolveCompanyId(Request $request): ?int
     {
@@ -739,6 +744,7 @@ class InvoiceController extends Controller
         $invoice->load([
             'client:id,company_id,name,email,contact_person',
             'items',
+            'payments.recorder:id,name',
         ]);
 
         return Inertia::render('Invoices/show', [
@@ -772,7 +778,29 @@ class InvoiceController extends Controller
 
                 'client' => $invoice->client,
                 'items' => $invoice->items,
+
+                'amount_paid' => $this->settlement->amountPaid($invoice),
+                'balance_due' => $this->settlement->balanceDue($invoice),
+
+                /** Newest first — {@see Invoice::payments()} orders the ledger. */
+                'payments' => $invoice->payments->map(fn (InvoicePayment $payment) => [
+                    'id' => $payment->id,
+                    'receipt_number' => $payment->receipt_number,
+                    'amount' => (float) $payment->amount,
+                    'paid_on' => $payment->paid_on?->toDateString(),
+                    'method' => $payment->method,
+                    'method_label' => $payment->methodLabel(),
+                    'reference' => $payment->reference,
+                    'recorded_by' => $payment->recorder?->name,
+                ]),
             ],
+
+            'paymentMethods' => collect(InvoicePayment::METHODS)
+                ->map(fn (string $method) => [
+                    'value' => $method,
+                    'label' => (new InvoicePayment(['method' => $method]))->methodLabel(),
+                ])
+                ->all(),
         ]);
     }
 

@@ -1,5 +1,5 @@
 // resources/js/Pages/Invoices/Show.tsx
-import { Head, router, usePage } from '@inertiajs/react';
+import { Form, Head, router, usePage } from '@inertiajs/react';
 import { motion } from 'framer-motion';
 import {
     Download,
@@ -8,12 +8,16 @@ import {
     Printer,
     Receipt,
     RefreshCw,
+    Trash2,
+    Wallet,
 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
 
 import ConfettiBurst from '@/components/confetti-burst';
 import {
+    fieldInputClass,
+    FormField,
     Panel,
     PanelHeader,
     PillButton,
@@ -37,6 +41,20 @@ type InvoiceItem = {
     line_total: number;
 };
 
+/** One receipt in the invoice's ledger. */
+type InvoicePaymentRow = {
+    id: number;
+    receipt_number: string | null;
+    amount: number;
+    paid_on: string | null;
+    method: string;
+    method_label: string;
+    reference?: string | null;
+    recorded_by?: string | null;
+};
+
+type PaymentMethod = { value: string; label: string };
+
 type Invoice = {
     id: number;
     number: string | null;
@@ -55,6 +73,10 @@ type Invoice = {
     tax_total: number;
     total: number;
 
+    amount_paid: number;
+    balance_due: number;
+    payments: InvoicePaymentRow[];
+
     notes?: string | null;
     terms?: string | null;
 
@@ -68,9 +90,11 @@ type Invoice = {
 
 export default function InvoiceShow({
     invoice,
+    paymentMethods,
     justCreated = false,
 }: {
     invoice: Invoice;
+    paymentMethods: PaymentMethod[];
     justCreated?: boolean;
 }) {
     const page = usePage() as any;
@@ -148,6 +172,40 @@ export default function InvoiceShow({
             },
         );
     };
+
+    const printReceipt = (paymentId: number) => {
+        window.open(
+            `/invoices/${invoice.id}/payments/${paymentId}/print`,
+            '_blank',
+            'noopener,noreferrer',
+        );
+    };
+
+    /**
+     * Removing money is not undoable and rewrites the invoice status, so it
+     * asks first. `back()` on the server re-renders this page, which is what
+     * refreshes the ledger and the balance beneath the scroll position.
+     */
+    const removePayment = (payment: InvoicePaymentRow) => {
+        const label = payment.receipt_number ?? 'this payment';
+
+        if (!window.confirm(`Remove ${label}? This cannot be undone.`)) {
+            return;
+        }
+
+        router.delete(`/invoices/${invoice.id}/payments/${payment.id}`, {
+            preserveScroll: true,
+        });
+    };
+
+    /** Today in the browser's own timezone, not UTC. */
+    const today = React.useMemo(() => {
+        const now = new Date();
+
+        return new Date(now.getTime() - now.getTimezoneOffset() * 60000)
+            .toISOString()
+            .slice(0, 10);
+    }, []);
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -366,6 +424,223 @@ export default function InvoiceShow({
                                 strong
                             />
                         </SoftTile>
+                    </Panel>
+
+                    <Panel className="lg:col-span-4 lg:col-start-9">
+                        <PanelHeader
+                            icon={Wallet}
+                            title="Payments"
+                            subtitle={
+                                invoice.payments.length === 1
+                                    ? '1 receipt issued'
+                                    : `${invoice.payments.length} receipts issued`
+                            }
+                        />
+
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                            <SoftTile>
+                                <div className="text-xs text-muted-foreground">
+                                    Paid to date
+                                </div>
+                                <div className="mt-1 text-sm font-semibold tabular-nums">
+                                    {money(invoice.amount_paid)}
+                                </div>
+                            </SoftTile>
+                            <SoftTile>
+                                <div className="text-xs text-muted-foreground">
+                                    Balance due
+                                </div>
+                                <div className="mt-1 text-sm font-semibold tabular-nums">
+                                    {money(invoice.balance_due)}
+                                </div>
+                            </SoftTile>
+                        </div>
+
+                        {invoice.payments.length === 0 ? (
+                            <p className="mt-3 text-sm text-muted-foreground">
+                                No payments recorded yet.
+                            </p>
+                        ) : (
+                            <ul className="mt-3 space-y-2">
+                                {invoice.payments.map((payment) => (
+                                    <li key={payment.id}>
+                                        <SoftTile>
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0">
+                                                    <div className="truncate text-sm font-semibold">
+                                                        {payment.receipt_number ??
+                                                            'Receipt'}
+                                                    </div>
+                                                    <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                                        {[
+                                                            payment.paid_on,
+                                                            payment.method_label,
+                                                            payment.reference,
+                                                        ]
+                                                            .filter(Boolean)
+                                                            .join(' · ')}
+                                                    </div>
+                                                    {payment.recorded_by ? (
+                                                        <div className="mt-0.5 truncate text-xs text-muted-foreground">
+                                                            Recorded by{' '}
+                                                            {
+                                                                payment.recorded_by
+                                                            }
+                                                        </div>
+                                                    ) : null}
+                                                </div>
+
+                                                <div className="shrink-0 text-sm font-semibold tabular-nums">
+                                                    {money(payment.amount)}
+                                                </div>
+                                            </div>
+
+                                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                                                <PillButton
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    onClick={() =>
+                                                        printReceipt(payment.id)
+                                                    }
+                                                >
+                                                    <Receipt className="h-4 w-4" />
+                                                    Receipt
+                                                </PillButton>
+
+                                                <PillButton
+                                                    variant="ghost"
+                                                    size="sm"
+                                                    className="text-destructive hover:bg-destructive/10"
+                                                    onClick={() =>
+                                                        removePayment(payment)
+                                                    }
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                    Remove
+                                                </PillButton>
+                                            </div>
+                                        </SoftTile>
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+
+                        {/* A settled invoice takes no more money, so the form goes. */}
+                        {invoice.balance_due > 0 ? (
+                            <Form
+                                action={`/invoices/${invoice.id}/payments`}
+                                method="post"
+                                resetOnSuccess
+                                options={{ preserveScroll: true }}
+                                className="mt-4 space-y-3"
+                            >
+                                {({ processing, errors }) => (
+                                    <>
+                                        <FormField
+                                            label="Amount"
+                                            htmlFor="payment_amount"
+                                            required
+                                        >
+                                            <input
+                                                /* Re-seeds with what is left after each payment. */
+                                                key={invoice.balance_due}
+                                                id="payment_amount"
+                                                name="amount"
+                                                type="number"
+                                                step="0.01"
+                                                min="0.01"
+                                                max={invoice.balance_due}
+                                                defaultValue={
+                                                    invoice.balance_due
+                                                }
+                                                className={fieldInputClass}
+                                            />
+                                            {errors.amount ? (
+                                                <p className="mt-1 text-sm text-destructive">
+                                                    {errors.amount}
+                                                </p>
+                                            ) : null}
+                                        </FormField>
+
+                                        <FormField
+                                            label="Paid on"
+                                            htmlFor="payment_paid_on"
+                                            required
+                                        >
+                                            <input
+                                                id="payment_paid_on"
+                                                name="paid_on"
+                                                type="date"
+                                                defaultValue={today}
+                                                className={fieldInputClass}
+                                            />
+                                            {errors.paid_on ? (
+                                                <p className="mt-1 text-sm text-destructive">
+                                                    {errors.paid_on}
+                                                </p>
+                                            ) : null}
+                                        </FormField>
+
+                                        <FormField
+                                            label="Method"
+                                            htmlFor="payment_method"
+                                            required
+                                        >
+                                            <select
+                                                id="payment_method"
+                                                name="method"
+                                                defaultValue={
+                                                    paymentMethods[0]?.value
+                                                }
+                                                className={fieldInputClass}
+                                            >
+                                                {paymentMethods.map(
+                                                    (method) => (
+                                                        <option
+                                                            key={method.value}
+                                                            value={method.value}
+                                                        >
+                                                            {method.label}
+                                                        </option>
+                                                    ),
+                                                )}
+                                            </select>
+                                            {errors.method ? (
+                                                <p className="mt-1 text-sm text-destructive">
+                                                    {errors.method}
+                                                </p>
+                                            ) : null}
+                                        </FormField>
+
+                                        <FormField
+                                            label="Reference"
+                                            htmlFor="payment_reference"
+                                        >
+                                            <input
+                                                id="payment_reference"
+                                                name="reference"
+                                                type="text"
+                                                placeholder="Optional"
+                                                className={fieldInputClass}
+                                            />
+                                        </FormField>
+
+                                        <PillButton
+                                            type="submit"
+                                            variant="solid"
+                                            size="sm"
+                                            disabled={processing}
+                                            className="w-full"
+                                        >
+                                            <Wallet className="h-4 w-4" />
+                                            {processing
+                                                ? 'Recording…'
+                                                : 'Record payment'}
+                                        </PillButton>
+                                    </>
+                                )}
+                            </Form>
+                        ) : null}
                     </Panel>
                 </div>
             </div>
