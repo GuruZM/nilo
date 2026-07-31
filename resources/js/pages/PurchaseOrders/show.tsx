@@ -53,6 +53,7 @@ type PurchaseOrder = {
     subtotal: number;
     discount_total: number;
     purchase_order_discount?: number;
+    line_discount?: number;
     tax_percent?: number;
     tax_total: number;
     total: number;
@@ -141,14 +142,17 @@ export default function PurchaseOrderShow({
     };
 
     /**
-     * A freshly created order carries only what was typed: `line_discount` is
-     * not sent, so it is derived from the two figures that are.
+     * The server splits `discount_total` for us, so the two halves cannot
+     * disagree. The subtraction stays only as a fallback for a payload that
+     * predates `line_discount`.
      */
-    const lineDiscount = Math.max(
-        0,
-        Number(purchaseOrder.discount_total ?? 0) -
-            Number(purchaseOrder.purchase_order_discount ?? 0),
-    );
+    const lineDiscount =
+        purchaseOrder.line_discount ??
+        Math.max(
+            0,
+            Number(purchaseOrder.discount_total ?? 0) -
+                Number(purchaseOrder.purchase_order_discount ?? 0),
+        );
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>

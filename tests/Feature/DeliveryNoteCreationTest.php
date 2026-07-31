@@ -321,3 +321,30 @@ it('keeps the signature block off every other document type', function () {
     expect($this->actingAs($user)->get("/invoices/{$invoice->id}/preview")->getContent())
         ->not->toContain('Received by');
 });
+
+/**
+ * `<input type="date">` accepts only `Y-m-d` and renders anything else blank,
+ * so a serialised Carbon would silently empty the sign-off form's date fields.
+ */
+it('sends dates in the shape a date input accepts', function () {
+    [$user, $invoice] = invoiceWithLines();
+
+    $this->actingAs($user)->post("/invoices/{$invoice->id}/delivery-note");
+    $note = App\Models\DeliveryNote::query()->latest('id')->first();
+
+    $this->actingAs($user)->put("/delivery-notes/{$note->id}", [
+        'status' => 'delivered',
+        'delivery_date' => '2026-07-05',
+        'received_by' => 'J. Banda',
+        'received_on' => '2026-07-06',
+    ])->assertSessionHasNoErrors();
+
+    $this->actingAs($user)
+        ->get("/delivery-notes/{$note->id}")
+        ->assertSuccessful()
+        ->assertInertia(fn ($page) => $page
+            ->where('deliveryNote.delivery_date', '2026-07-05')
+            ->where('deliveryNote.received_on', '2026-07-06')
+            ->where('deliveryNote.issue_date', now()->toDateString())
+        );
+});

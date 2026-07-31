@@ -301,6 +301,14 @@ class PurchaseOrderController extends Controller
                 'subtotal' => (float) $purchaseOrder->subtotal,
                 'discount_total' => (float) $purchaseOrder->discount_total,
                 'purchase_order_discount' => (float) ($purchaseOrder->purchase_order_discount ?? 0),
+
+                /**
+                 * `discount_total` carries both; split it here rather than in the
+                 * page, so the two never disagree about which half is which.
+                 * Matches what QuotationController::show() sends.
+                 */
+                'line_discount' => max(0, (float) $purchaseOrder->discount_total
+                    - (float) ($purchaseOrder->purchase_order_discount ?? 0)),
                 'tax_percent' => (float) ($purchaseOrder->tax_percent ?? 0),
                 'tax_total' => (float) $purchaseOrder->tax_total,
                 'total' => (float) $purchaseOrder->total,

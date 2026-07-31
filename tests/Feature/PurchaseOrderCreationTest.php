@@ -304,3 +304,27 @@ it('offers the company suppliers on the create page', function () {
             ->where('suppliers.0.name', $supplier->name)
         );
 });
+
+/**
+ * The show page used to derive this by subtraction. Sending it means the two
+ * halves of `discount_total` can never disagree about which is which.
+ */
+it('splits the discount into its line and order halves for the page', function () {
+    [$user, $supplier] = purchaseOrderContext();
+
+    $payload = purchaseOrderPayload($supplier);
+    $payload['items'][0]['discount'] = 300;
+    $payload['purchase_order_discount'] = 200;
+
+    $this->actingAs($user)->post('/purchase-orders', $payload);
+    $order = PurchaseOrder::query()->latest('id')->first();
+
+    $this->actingAs($user)
+        ->get("/purchase-orders/{$order->id}")
+        ->assertSuccessful()
+        ->assertInertia(fn ($page) => $page
+            ->where('purchaseOrder.discount_total', 500)
+            ->where('purchaseOrder.purchase_order_discount', 200)
+            ->where('purchaseOrder.line_discount', 300)
+        );
+});

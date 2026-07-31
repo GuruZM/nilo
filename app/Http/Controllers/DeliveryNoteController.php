@@ -165,12 +165,17 @@ class DeliveryNoteController extends Controller
                 'number' => $deliveryNote->number,
                 'reference' => $deliveryNote->reference,
                 'status' => $deliveryNote->status,
-                'issue_date' => $deliveryNote->issue_date,
-                'delivery_date' => $deliveryNote->delivery_date,
+                /**
+                 * Sent as `Y-m-d`, not as a serialised Carbon. The sign-off form
+                 * binds these to `<input type="date">`, which silently renders
+                 * blank for anything other than that exact shape.
+                 */
+                'issue_date' => $deliveryNote->issue_date?->toDateString(),
+                'delivery_date' => $deliveryNote->delivery_date?->toDateString(),
                 'deliver_to' => $deliveryNote->deliver_to,
                 'delivery_address' => $deliveryNote->delivery_address,
                 'received_by' => $deliveryNote->received_by,
-                'received_on' => $deliveryNote->received_on,
+                'received_on' => $deliveryNote->received_on?->toDateString(),
                 'notes' => $deliveryNote->notes,
                 'client' => $deliveryNote->client,
                 'invoice' => $deliveryNote->invoice,
