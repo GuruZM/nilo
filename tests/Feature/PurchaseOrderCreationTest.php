@@ -255,11 +255,40 @@ it('lists purchase orders for the active company', function () {
         ->get('/purchase-orders')
         ->assertSuccessful()
         ->assertInertia(fn ($page) => $page
-            /** Drop the `false` once Task 4.7 lands the page component. */
-            ->component('PurchaseOrders/Index', false)
+            ->component('PurchaseOrders/Index')
             ->has('purchaseOrders', 1)
             ->where('purchaseOrders.0.number', 'PO-000001')
             ->where('purchaseOrders.0.supplier_name', $supplier->name)
+        );
+});
+
+/**
+ * The page `store()` redirects to, rendered for the leanest order the form can
+ * produce: a draft with no delivery date agreed. Both are optional, so the show
+ * page has to survive them being absent.
+ */
+it('shows a freshly created draft order with no expected date', function () {
+    [$user, $supplier] = purchaseOrderContext();
+
+    $payload = purchaseOrderPayload($supplier);
+    unset($payload['expected_date']);
+
+    $this->actingAs($user)
+        ->post('/purchase-orders', $payload)
+        ->assertRedirect();
+
+    $order = PurchaseOrder::query()->latest('id')->first();
+
+    $this->actingAs($user)
+        ->get("/purchase-orders/{$order->id}")
+        ->assertSuccessful()
+        ->assertInertia(fn ($page) => $page
+            ->component('PurchaseOrders/show')
+            ->where('purchaseOrder.status', 'draft')
+            ->where('purchaseOrder.expected_date', null)
+            ->where('purchaseOrder.supplier.name', $supplier->name)
+            ->has('purchaseOrder.items', 1)
+            ->has('statuses', 5)
         );
 });
 
@@ -270,8 +299,7 @@ it('offers the company suppliers on the create page', function () {
         ->get('/purchase-orders/create')
         ->assertSuccessful()
         ->assertInertia(fn ($page) => $page
-            /** Drop the `false` once Task 4.7 lands the page component. */
-            ->component('PurchaseOrders/Create', false)
+            ->component('PurchaseOrders/Create')
             ->has('suppliers', 1)
             ->where('suppliers.0.name', $supplier->name)
         );

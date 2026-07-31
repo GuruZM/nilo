@@ -418,6 +418,25 @@ const STATUS_TONES: Record<
             'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200',
         icon: Truck,
     },
+    /**
+     * The purchase order pair, and the same trap again: neither had a tone, so
+     * an order that had been approved — or whose goods were already on the
+     * shelf — rendered in amber, indistinguishable from one still being typed.
+     *
+     * They take the `dispatched`/`delivered` split rather than both going
+     * emerald: `approved` is brand because the order is live but nothing has
+     * arrived yet, and only `received` is finished, so only it earns emerald.
+     * `sent` is brand too, but carries `ArrowUpRight` against this `CheckCircle2`.
+     */
+    approved: {
+        className:
+            'bg-brand-50 text-brand-700 dark:bg-brand-500/15 dark:text-brand-200',
+        icon: CheckCircle2,
+    },
+    received: {
+        className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
+        icon: PackageCheck,
+    },
     confirmed: {
         className: 'bg-emerald-500/10 text-emerald-700 dark:text-emerald-400',
         icon: CheckCircle2,
