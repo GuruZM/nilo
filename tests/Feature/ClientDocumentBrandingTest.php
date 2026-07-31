@@ -214,14 +214,21 @@ it('drops the from clause instead of naming the platform when the company is gon
     expect($mailable->render())->not->toContain('Nilo');
 });
 
+/**
+ * The owner name is pinned rather than left to faker, and deliberately carries
+ * an apostrophe. Blade escapes it, so asserting the raw string passes or fails
+ * on whether the generated name happened to contain a special character — which
+ * is exactly how this test used to fail about one run in ten.
+ */
 it('names the owner when the company record has no name', function () {
     $invoice = brandedInvoice();
     $invoice->company->forceFill(['name' => ''])->save();
+    $invoice->company->owner->forceFill(['name' => "Fiona O'Brien"])->save();
     $invoice->unsetRelation('company');
 
     $owner = $invoice->company->owner;
 
-    expect((new InvoiceToClient($invoice))->render())->toContain($owner->name);
+    expect((new InvoiceToClient($invoice))->render())->toContain(e($owner->name));
 });
 
 it('leaves no platform footer on the rendered invoice document', function () {
