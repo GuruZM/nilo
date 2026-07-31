@@ -19,6 +19,8 @@ import {
     Building2,
     Coins,
     CreditCard,
+    Factory,
+    FileMinus,
     FileSignature,
     FileText,
     Files,
@@ -27,8 +29,10 @@ import {
     MessageSquare,
     Palette,
     Shield,
+    ShoppingCart,
     Tag,
     TicketPercent,
+    Truck,
     UserCog,
     Users,
 } from 'lucide-react';
@@ -44,6 +48,18 @@ const mainNavItems: NavItem[] = [
         href: '/companies',
         icon: Building2,
     },
+    /**
+     * The document register: every type the app can raise, in the order a job
+     * moves through them - quote, bill, credit, dispatch.
+     *
+     * Purchase orders point at a supplier rather than a client, so they are the
+     * one entry here whose money runs the other way, and splitting them out
+     * into a "Purchasing" group beside Suppliers was the obvious alternative.
+     * They stay because the question a user arrives with is "where do I raise a
+     * purchase order", and the answer has to be the same place as every other
+     * document they raise. Direction of trade is an accounting taxonomy, not a
+     * navigation one. Being last in the list carries the distinction far enough.
+     */
     {
         title: 'Documents',
         href: '#',
@@ -59,12 +75,38 @@ const mainNavItems: NavItem[] = [
                 href: '/quotations',
                 icon: FileSignature,
             },
+            {
+                title: 'Credit Notes',
+                href: '/credit-notes',
+                icon: FileMinus,
+            },
+            {
+                title: 'Delivery Notes',
+                href: '/delivery-notes',
+                icon: Truck,
+            },
+            {
+                title: 'Purchase Orders',
+                href: '/purchase-orders',
+                icon: ShoppingCart,
+            },
         ],
     },
+    /**
+     * Clients and suppliers are the two address books, not documents, so they
+     * sit outside the group above and next to each other. Both stay top level:
+     * nesting suppliers under a purchasing section would cost it a click that
+     * the identically-shaped client list does not pay.
+     */
     {
         title: 'Clients',
         href: '/clients',
         icon: Users,
+    },
+    {
+        title: 'Suppliers',
+        href: '/suppliers',
+        icon: Factory,
     },
 ];
 

@@ -47,6 +47,60 @@ test('app sidebar renders main, settings, and admin navigation sections', functi
         ->toContain("Route::post('/settings/quotation-templates', [InvoiceTemplateController::class, 'quotationStore']);");
 });
 
+test('every v1 document type is reachable from the Documents group and suppliers sit beside clients', function () {
+    $sidebar = file_get_contents(__DIR__.'/../../resources/js/components/app-sidebar.tsx');
+
+    expect($sidebar)
+        ->toContain("title: 'Credit Notes'")
+        ->toContain("href: '/credit-notes'")
+        ->toContain("title: 'Delivery Notes'")
+        ->toContain("href: '/delivery-notes'")
+        ->toContain("title: 'Purchase Orders'")
+        ->toContain("href: '/purchase-orders'")
+        ->toContain("title: 'Suppliers'")
+        ->toContain("href: '/suppliers'")
+        // The icons the entries render with have to be imported to compile.
+        ->toContain('FileMinus,')
+        ->toContain('Truck,')
+        ->toContain('ShoppingCart,')
+        ->toContain('Factory,');
+
+    // Substring assertions cannot express nesting, so slice the Documents group
+    // out of the file and assert against that region alone. The group runs from
+    // its own title to the next top-level entry, Clients.
+    $documentsGroup = documentsNavGroup($sidebar);
+
+    expect($documentsGroup)
+        ->toContain("href: '/invoices'")
+        ->toContain("href: '/quotations'")
+        ->toContain("href: '/credit-notes'")
+        ->toContain("href: '/delivery-notes'")
+        // Purchase orders stay in the document register rather than splitting
+        // off into a purchasing section - see the group's own comment.
+        ->toContain("href: '/purchase-orders'")
+        // Clients and suppliers are entity lists, not documents. Both stay at
+        // the top level so neither costs an extra click the other does not.
+        ->not->toContain("href: '/suppliers'")
+        ->not->toContain("href: '/clients'");
+
+    // Suppliers immediately follows clients, so the two lists read as a pair.
+    expect($sidebar)->toMatch(
+        '/href: \'\/clients\',.*?href: \'\/suppliers\',/s'
+    );
+});
+
+/** The `Documents` entry of `mainNavItems`, from its title to the next entry. */
+function documentsNavGroup(string $sidebar): string
+{
+    $start = strpos($sidebar, "title: 'Documents'");
+    $end = strpos($sidebar, "title: 'Clients'", $start);
+
+    expect($start)->not->toBeFalse();
+    expect($end)->not->toBeFalse();
+
+    return substr($sidebar, $start, $end - $start);
+}
+
 test('company and currency switchers live in the left rail, detached from the nav links', function () {
     $sidebar = file_get_contents(__DIR__.'/../../resources/js/components/app-sidebar.tsx');
     $switchers = file_get_contents(__DIR__.'/../../resources/js/components/workspace-switchers.tsx');
