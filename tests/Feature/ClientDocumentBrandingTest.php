@@ -210,7 +210,7 @@ it('drops the from clause instead of naming the platform when the company is gon
 
     $mailable = new InvoiceToClient($invoice);
 
-    $mailable->assertHasSubject('Invoice #'.$invoice->id);
+    $mailable->assertHasSubject('Invoice '.$invoice->number);
     expect($mailable->render())->not->toContain('Nilo');
 });
 

@@ -94,8 +94,9 @@ it('renders the email body and a real PDF attachment', function () {
     $mailable->assertSeeInHtml($client->name);
     $mailable->assertSeeInHtml('ZMW 1,000.00');
 
-    /** Invoices are still created without a number, so the id is the fallback. */
-    $mailable->assertHasSubject('Invoice #'.$invoice->id.' from '.$invoice->company->name);
+    /** The subject names the issued number, not the autoincrement id. */
+    $mailable->assertHasSubject('Invoice '.$invoice->number.' from '.$invoice->company->name);
+    expect($invoice->number)->toBe('INV-000001');
 
     $pdf = app(App\Services\InvoiceDocumentRenderer::class)->pdf($invoice);
 
