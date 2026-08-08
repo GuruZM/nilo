@@ -185,7 +185,6 @@ export default function Enterprise() {
                         <textarea
                             id="message"
                             rows={4}
-                            placeholder="Tell us about your business needs…"
                             value={data.message}
                             onChange={(e) => setData('message', e.target.value)}
                             className={cn(fieldInputClass, 'h-auto py-2')}

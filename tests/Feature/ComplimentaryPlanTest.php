@@ -72,8 +72,8 @@ it('refuses to record a payment against a complimentary plan', function () {
     $this->actingAs(User::factory()->create(['email_verified_at' => now()]))
         ->post(route('subscription.payment.store'), [
             'plan_id' => $resonantt->id,
-            'payment_method' => 'airtel_money',
-            'phone_number' => '0977123456',
+            'payment_method' => 'mobile_money',
+            'payment_reference' => 'TX123456',
         ])
         ->assertForbidden();
 

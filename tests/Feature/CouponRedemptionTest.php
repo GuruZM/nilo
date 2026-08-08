@@ -26,12 +26,11 @@ function standardPlan(array $overrides = []): Plan
 /**
  * @return array<string, mixed>
  */
-function airtelPayload(Plan $plan, array $overrides = []): array
+function mobileMoneyPayload(Plan $plan, array $overrides = []): array
 {
     return array_merge([
         'plan_id' => $plan->id,
-        'payment_method' => 'airtel_money',
-        'phone_number' => '0977000000',
+        'payment_method' => 'mobile_money',
         'payment_reference' => 'TX123',
     ], $overrides);
 }
@@ -157,7 +156,7 @@ it('charges the discounted total and records the redemption', function () {
     $user = buyer();
 
     $this->actingAs($user)
-        ->post(route('subscription.payment.store'), airtelPayload($plan, ['coupon_code' => 'save20']))
+        ->post(route('subscription.payment.store'), mobileMoneyPayload($plan, ['coupon_code' => 'save20']))
         ->assertRedirect(route('subscription.payment.status'));
 
     $payment = Payment::query()->where('user_id', $user->id)->sole();
@@ -184,7 +183,7 @@ it('leaves the payment at list price when no coupon is sent', function () {
     $user = buyer();
 
     $this->actingAs($user)
-        ->post(route('subscription.payment.store'), airtelPayload($plan))
+        ->post(route('subscription.payment.store'), mobileMoneyPayload($plan))
         ->assertRedirect(route('subscription.payment.status'));
 
     $payment = Payment::query()->where('user_id', $user->id)->sole();
@@ -202,7 +201,7 @@ it('rejects a submitted purchase carrying an unusable coupon', function () {
     $user = buyer();
 
     $this->actingAs($user)
-        ->post(route('subscription.payment.store'), airtelPayload($plan, ['coupon_code' => 'OLD']))
+        ->post(route('subscription.payment.store'), mobileMoneyPayload($plan, ['coupon_code' => 'OLD']))
         ->assertSessionHasErrors('coupon_code');
 
     $this->assertDatabaseCount('payments', 0);
@@ -250,7 +249,7 @@ it('takes the zero-total shortcut even when the paid endpoint is used', function
     $user = buyer();
 
     $this->actingAs($user)
-        ->post(route('subscription.payment.store'), airtelPayload($plan, ['coupon_code' => 'ALLFREE']))
+        ->post(route('subscription.payment.store'), mobileMoneyPayload($plan, ['coupon_code' => 'ALLFREE']))
         ->assertRedirect(route('dashboard'));
 
     expect(Subscription::query()->where('user_id', $user->id)->sole()->status)->toBe('active');
@@ -264,11 +263,11 @@ it('stops a capped coupon from being oversold', function () {
     ]);
 
     $this->actingAs(buyer())
-        ->post(route('subscription.payment.store'), airtelPayload($plan, ['coupon_code' => 'FIRST1']))
+        ->post(route('subscription.payment.store'), mobileMoneyPayload($plan, ['coupon_code' => 'FIRST1']))
         ->assertRedirect(route('subscription.payment.status'));
 
     $this->actingAs(buyer())
-        ->post(route('subscription.payment.store'), airtelPayload($plan, ['coupon_code' => 'FIRST1']))
+        ->post(route('subscription.payment.store'), mobileMoneyPayload($plan, ['coupon_code' => 'FIRST1']))
         ->assertSessionHasErrors('coupon_code');
 
     expect($coupon->fresh()->redemptions_count)->toBe(1);
@@ -282,7 +281,7 @@ it('lets the same account reuse a coupon that is not once-per-user', function ()
 
     foreach (range(1, 2) as $ignored) {
         $this->actingAs($user)
-            ->post(route('subscription.payment.store'), airtelPayload($plan, ['coupon_code' => 'REPEAT']))
+            ->post(route('subscription.payment.store'), mobileMoneyPayload($plan, ['coupon_code' => 'REPEAT']))
             ->assertRedirect(route('subscription.payment.status'));
     }
 
@@ -294,7 +293,7 @@ it('claims the coupon on submission so a pending payment holds its place', funct
     $coupon = Coupon::factory()->percentage(20)->create(['code' => 'HOLD', 'max_redemptions' => 1]);
 
     $this->actingAs(buyer())
-        ->post(route('subscription.payment.store'), airtelPayload($plan, ['coupon_code' => 'HOLD']));
+        ->post(route('subscription.payment.store'), mobileMoneyPayload($plan, ['coupon_code' => 'HOLD']));
 
     expect($coupon->fresh()->hasRedemptionsLeft())->toBeFalse();
 });
@@ -309,7 +308,7 @@ it('returns the coupon to the pool when an admin rejects the payment', function 
     $user = buyer();
 
     $this->actingAs($user)
-        ->post(route('subscription.payment.store'), airtelPayload($plan, ['coupon_code' => 'REFUND']));
+        ->post(route('subscription.payment.store'), mobileMoneyPayload($plan, ['coupon_code' => 'REFUND']));
 
     $payment = Payment::query()->where('user_id', $user->id)->sole();
 
@@ -331,7 +330,7 @@ it('keeps the coupon spent once an admin confirms the payment', function () {
     $user = buyer();
 
     $this->actingAs($user)
-        ->post(route('subscription.payment.store'), airtelPayload($plan, ['coupon_code' => 'KEEP']));
+        ->post(route('subscription.payment.store'), mobileMoneyPayload($plan, ['coupon_code' => 'KEEP']));
 
     $payment = Payment::query()->where('user_id', $user->id)->sole();
 

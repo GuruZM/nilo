@@ -6,8 +6,8 @@ import {
 import NiloSpinner from '@/components/nilo-spinner';
 import { GateShell } from '@/components/subscription/gate-shell';
 import { cn } from '@/lib/utils';
-import { Plan } from '@/types';
-import { Head, Link, router } from '@inertiajs/react';
+import { Plan, SharedData } from '@/types';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { Check, Crown, Sparkles, Star } from 'lucide-react';
 import { useState } from 'react';
 
@@ -38,6 +38,9 @@ export default function Select({ plans, currentPlan }: SelectProps) {
         null,
     );
 
+    /** This page sits outside the app chrome, so it has no toaster to fall back on. */
+    const { flash } = usePage<SharedData>().props;
+
     const handleSelect = (plan: Plan) => {
         setSubmittingPlanId(plan.id);
 
@@ -53,8 +56,22 @@ export default function Select({ plans, currentPlan }: SelectProps) {
             title="Choose your plan"
             subtitle="Select the plan that best fits your business. You can upgrade at any time."
             width="xl"
+            /*
+             * Only offered to someone who already holds a plan. A subscriber
+             * arrives here from Billing and must be able to change their mind;
+             * a new user was sent here by the subscription gate and has nowhere
+             * to go back to yet.
+             */
+            backHref={currentPlan ? '/subscription' : undefined}
+            backLabel="Back to billing"
         >
             <Head title="Choose Your Plan" />
+
+            {flash?.error ? (
+                <p className="rounded-2xl bg-rose-500/10 px-3 py-2 text-xs text-rose-700 dark:text-rose-400">
+                    {flash.error}
+                </p>
+            ) : null}
 
             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
                 {plans.map((plan) => {
@@ -86,6 +103,11 @@ export default function Select({ plans, currentPlan }: SelectProps) {
                                 <div className="text-sm font-semibold">
                                     {plan.name}
                                 </div>
+                                {isCurrentPlan ? (
+                                    <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] font-semibold text-emerald-700 dark:text-emerald-400">
+                                        Current
+                                    </span>
+                                ) : null}
                             </div>
 
                             <div className="mt-4">
@@ -129,7 +151,13 @@ export default function Select({ plans, currentPlan }: SelectProps) {
                             </ul>
 
                             <div className="mt-5">
-                                {isCurrentPlan ? (
+                                {/*
+                                 * Nothing renews itself, so buying the plan you
+                                 * already hold is the only way to extend it —
+                                 * only the free tier has nothing to buy.
+                                 */}
+                                {isCurrentPlan &&
+                                parseFloat(plan.price) === 0 ? (
                                     <PillButton
                                         variant="ghost"
                                         disabled
@@ -162,6 +190,8 @@ export default function Select({ plans, currentPlan }: SelectProps) {
                                                 <NiloSpinner size={16} />
                                                 Processing…
                                             </>
+                                        ) : isCurrentPlan ? (
+                                            'Renew'
                                         ) : plan.slug === 'free' ? (
                                             'Get started free'
                                         ) : (

@@ -61,7 +61,14 @@ class UserController extends Controller
     {
         $validated = $request->validated();
         $plan = Plan::findOrFail($validated['plan_id']);
-        $current = $user->subscription;
+        // The newest row that is not an in-flight checkout. Not the active one,
+        // because reactivating a cancelled plan in place is a supported edit;
+        // not simply the newest, because that would let an admin edit hijack a
+        // subscription the customer is still paying for at the gateway.
+        $current = $user->subscriptions()
+            ->where('status', '!=', 'pending_payment')
+            ->latest('id')
+            ->first();
 
         $attributes = [
             'status' => $validated['status'],

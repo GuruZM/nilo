@@ -86,6 +86,41 @@ it('amends the subscription in place when the plan is unchanged', function () {
         ->cancelled_at->toBeNull();
 });
 
+/**
+ * An admin assigning a plan must not reach into a checkout the customer is
+ * still part-way through at the gateway — settlement stays the only thing that
+ * decides what happens to that row.
+ */
+it('ignores a checkout still in flight when it moves a user to another plan', function () {
+    $user = User::factory()->create();
+    $standard = Plan::factory()->create();
+    $premium = Plan::factory()->create();
+    $enterprise = Plan::factory()->create();
+
+    $serving = Subscription::factory()->create([
+        'user_id' => $user->id,
+        'plan_id' => $standard->id,
+        'status' => 'active',
+        'ends_at' => now()->addMonth(),
+    ]);
+    $inFlight = Subscription::factory()->create([
+        'user_id' => $user->id,
+        'plan_id' => $premium->id,
+        'status' => 'pending_payment',
+    ]);
+
+    $this->actingAs(subscriptionAdmin())
+        ->post(route('admin.users.subscription.update', $user), [
+            'plan_id' => $enterprise->id,
+            'status' => 'active',
+            'ends_at' => null,
+        ]);
+
+    expect($serving->fresh()->status)->toBe('cancelled')
+        ->and($inFlight->fresh()->status)->toBe('pending_payment')
+        ->and($user->fresh()->activePlan()->id)->toBe($enterprise->id);
+});
+
 it('sets and clears the expiry date', function () {
     $user = User::factory()->create();
     $plan = Plan::factory()->create();
