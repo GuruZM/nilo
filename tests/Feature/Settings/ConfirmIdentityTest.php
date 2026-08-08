@@ -332,13 +332,13 @@ test('the confirmation only resumes for the provider that started it', function 
     $user = User::factory()->withSubscription()->create([
         'password' => null,
         'google_id' => 'google-1',
-        'facebook_id' => 'facebook-1',
+        'linkedin_id' => 'linkedin-1',
     ]);
 
     mockReauthCallback('google-1');
 
     $this->actingAs($user)
-        ->withSession(pendingConfirmation(['confirm_identity.intent' => 'enable'], 'facebook'))
+        ->withSession(pendingConfirmation(['confirm_identity.intent' => 'enable'], 'linkedin'))
         ->get(route('google.callback'))
         ->assertRedirect(config('fortify.home'));
 

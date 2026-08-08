@@ -18,6 +18,13 @@
         </include>
     </source>
     <php>
+        <!--
+            The suite runs in one process and had grown just past PHP's 512M CLI
+            default, which surfaced as a Carbon allocation failure partway
+            through rather than as a test failure. Raised so `php artisan test`
+            keeps working without a `-d memory_limit` flag.
+        -->
+        <ini name="memory_limit" value="1G"/>
         <env name="APP_ENV" value="testing"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>

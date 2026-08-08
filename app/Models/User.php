@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Notifications\WelcomeVerifyEmail;
 use Illuminate\Contracts\Auth\MustVerifyEmail;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -12,12 +13,13 @@ use Illuminate\Notifications\Notifiable;
 use Laravel\Fortify\Contracts\PasskeyUser;
 use Laravel\Fortify\PasskeyAuthenticatable;
 use Laravel\Fortify\TwoFactorAuthenticatable;
+use Laravel\Sanctum\HasApiTokens;
 use Spatie\Permission\Traits\HasRoles;
 
 class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 {
     /** @use HasFactory<\Database\Factories\UserFactory> */
-    use HasFactory, HasRoles, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
+    use HasApiTokens, HasFactory, HasRoles, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable;
 
     /**
      * The attributes that are mass assignable.
@@ -29,7 +31,6 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         'email',
         'password',
         'google_id',
-        'facebook_id',
         'linkedin_id',
         'current_company_id',
     ];
@@ -51,7 +52,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
      */
     public function linkedProviders(): array
     {
-        return collect(['google', 'facebook', 'linkedin'])
+        return collect(['google', 'linkedin'])
             ->filter(fn (string $provider): bool => filled($this->providerId($provider)))
             ->values()
             ->all();
@@ -132,9 +133,52 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
         return $this->hasMany(CompanyUser::class);
     }
 
+    /**
+     * Every subscription row this user has ever had.
+     */
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    /**
+     * The newest subscription row, whatever its status.
+     *
+     * This is the history view — during a checkout it is the pending row, not
+     * the plan the user is entitled to. Reach for activeSubscription() for
+     * anything that decides what the user may do.
+     */
     public function subscription(): HasOne
     {
         return $this->hasOne(Subscription::class)->latestOfMany();
+    }
+
+    /**
+     * The subscription that grants access.
+     *
+     * Constrained by status rather than by subscription()'s newest-row rule
+     * because checkout files a second, pending row: without this an upgrade in
+     * flight reads as "no plan" and the subscribed middleware turns a paying
+     * customer out of the app halfway through paying. The ends_at test stays in
+     * Subscription::isActive() — see activePlan().
+     */
+    public function activeSubscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class)->ofMany(
+            ['id' => 'max'],
+            fn (Builder $query) => $query->where('status', 'active'),
+        );
+    }
+
+    /**
+     * The upgrade waiting on a payment, if any.
+     */
+    public function pendingSubscription(): HasOne
+    {
+        return $this->hasOne(Subscription::class)->ofMany(
+            ['id' => 'max'],
+            fn (Builder $query) => $query->where('status', 'pending_payment'),
+        );
     }
 
     public function payments(): HasMany
@@ -144,7 +188,7 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
 
     public function activePlan(): ?Plan
     {
-        $subscription = $this->subscription;
+        $subscription = $this->activeSubscription;
 
         if ($subscription && $subscription->isActive()) {
             return $subscription->plan;
@@ -162,6 +206,11 @@ class User extends Authenticatable implements MustVerifyEmail, PasskeyUser
      * Enrol the user on the free tier so they can reach the dashboard
      * without being forced to pick a plan first. Returns null when no
      * active free plan exists, letting callers fall back to selection.
+     *
+     * Guards on subscription() rather than activeSubscription() deliberately:
+     * every caller runs immediately after registration, so "this account has
+     * any subscription row at all" is the conservative test. Checking only for
+     * an active one would hand a free plan to someone whose plan was cancelled.
      */
     public function subscribeToFreePlan(): ?Subscription
     {

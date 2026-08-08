@@ -19,6 +19,14 @@ test('login screen can be rendered', function () {
         );
 });
 
+test('facebook is no longer offered as a sign in option', function () {
+    $this->get('/auth/facebook')->assertNotFound();
+    $this->get('/auth/facebook/callback')->assertNotFound();
+
+    $this->get(route('login'))
+        ->assertInertia(fn (Assert $page) => $page->missing('oauth.facebook'));
+});
+
 test('login screen can be rendered when currencies are unavailable', function () {
     Schema::dropIfExists('currencies');
 

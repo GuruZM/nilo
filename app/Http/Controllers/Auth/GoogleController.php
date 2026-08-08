@@ -4,8 +4,7 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\Settings\ConfirmIdentityController;
-use App\Models\User;
-use Illuminate\Auth\Events\Registered;
+use App\Services\Auth\GoogleAccountLinker;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -14,6 +13,8 @@ use Throwable;
 
 class GoogleController extends Controller
 {
+    public function __construct(private GoogleAccountLinker $accounts) {}
+
     /**
      * Redirect the user to Google's OAuth consent screen.
      */
@@ -50,15 +51,9 @@ class GoogleController extends Controller
                 ->with('error', 'Unable to sign in with Google. Please try again.');
         }
 
-        $existing = User::where('google_id', $googleUser->getId())
-            ->orWhere('email', $googleUser->getEmail())
-            ->first();
+        $existing = $this->accounts->find($googleUser->getId(), $googleUser->getEmail());
 
         if ($existing) {
-            if (! $existing->google_id) {
-                $existing->update(['google_id' => $googleUser->getId()]);
-            }
-
             Auth::login($existing);
 
             return redirect()->intended(config('fortify.home'));
@@ -74,17 +69,11 @@ class GoogleController extends Controller
                 ->with('error', 'You must agree to the Terms and Conditions to create an account.');
         }
 
-        $user = User::create([
-            'name' => $googleUser->getName() ?: $googleUser->getEmail(),
-            'email' => $googleUser->getEmail(),
-            'google_id' => $googleUser->getId(),
-        ]);
-
-        $user->forceFill(['email_verified_at' => now()])->save();
-
-        event(new Registered($user));
-
-        $user->subscribeToFreePlan();
+        $user = $this->accounts->create(
+            $googleUser->getId(),
+            $googleUser->getEmail(),
+            $googleUser->getName(),
+        );
 
         Auth::login($user);
 

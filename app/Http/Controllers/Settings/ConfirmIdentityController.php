@@ -29,7 +29,6 @@ class ConfirmIdentityController extends Controller
      */
     private const REAUTH_PARAMETERS = [
         'google' => ['prompt' => 'login'],
-        'facebook' => ['auth_type' => 'reauthenticate'],
     ];
 
     /**
