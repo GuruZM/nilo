@@ -3,7 +3,6 @@
 use App\Http\Controllers\Auth\AuthenticatedSessionController;
 use App\Http\Controllers\Auth\EmailVerificationNotificationController;
 use App\Http\Controllers\Auth\EmailVerificationPromptController;
-use App\Http\Controllers\Auth\FacebookController;
 use App\Http\Controllers\Auth\GoogleController;
 use App\Http\Controllers\Auth\LinkedInController;
 use App\Http\Controllers\Auth\NewPasswordController;
@@ -40,9 +39,6 @@ Route::middleware('guest')->group(function () {
     Route::get('auth/google', [GoogleController::class, 'redirect'])
         ->name('google.redirect');
 
-    Route::get('auth/facebook', [FacebookController::class, 'redirect'])
-        ->name('facebook.redirect');
-
     Route::get('auth/linkedin', [LinkedInController::class, 'redirect'])
         ->name('linkedin.redirect');
 
@@ -60,9 +56,6 @@ Route::middleware('guest')->group(function () {
  */
 Route::get('auth/google/callback', [GoogleController::class, 'callback'])
     ->name('google.callback');
-
-Route::get('auth/facebook/callback', [FacebookController::class, 'callback'])
-    ->name('facebook.callback');
 
 Route::middleware('auth')->group(function () {
     Route::get('verify-email', EmailVerificationPromptController::class)
