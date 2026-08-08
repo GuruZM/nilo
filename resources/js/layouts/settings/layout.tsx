@@ -5,7 +5,13 @@ import { edit } from '@/routes/profile';
 import { show as showTwoFactor } from '@/routes/two-factor';
 import { type NavItem } from '@/types/index.d';
 import { Link, usePage } from '@inertiajs/react';
-import { Fingerprint, KeyRound, ShieldCheck, User } from 'lucide-react';
+import {
+    CreditCard,
+    Fingerprint,
+    KeyRound,
+    ShieldCheck,
+    User,
+} from 'lucide-react';
 import { type PropsWithChildren } from 'react';
 
 const sidebarNavItems: NavItem[] = [
@@ -28,6 +34,11 @@ const sidebarNavItems: NavItem[] = [
         title: 'Passkeys',
         href: '/settings/passkeys',
         icon: Fingerprint,
+    },
+    {
+        title: 'Billing',
+        href: '/subscription',
+        icon: CreditCard,
     },
 ];
 

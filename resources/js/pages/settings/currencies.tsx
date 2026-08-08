@@ -877,7 +877,6 @@ function CurrencyModal({
                                                     e.target.value,
                                                 )
                                             }
-                                            placeholder="ZMW"
                                             maxLength={3}
                                             required
                                         />
@@ -898,7 +897,6 @@ function CurrencyModal({
                                                     e.target.value,
                                                 )
                                             }
-                                            placeholder="Zambian Kwacha"
                                             required
                                         />
                                         {form.errors.name && (
@@ -918,7 +916,6 @@ function CurrencyModal({
                                                     e.target.value,
                                                 )
                                             }
-                                            placeholder="K"
                                         />
                                         {form.errors.symbol && (
                                             <p className="text-sm text-destructive">

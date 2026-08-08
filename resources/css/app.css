@@ -23,6 +23,41 @@
         }
     }
 
+    /*
+     * Sidebar dropdowns. The height is Radix's own measurement of the panel,
+     * published as a custom property on the content element, so the keyframe
+     * animates to the real height rather than a guessed one.
+     *
+     * Kept deliberately quiet: navigation is furniture, and a rail the user
+     * opens twenty times a day should not perform. The duration sits just above
+     * the threshold where movement stops reading as a jump, and opacity only
+     * lifts off 0.85 - enough to soften the clipped edge, not a fade-in.
+     */
+    --animate-collapsible-down: collapsible-down 140ms ease-out;
+    --animate-collapsible-up: collapsible-up 110ms ease-in;
+
+    @keyframes collapsible-down {
+        from {
+            height: 0;
+            opacity: 0.85;
+        }
+        to {
+            height: var(--radix-collapsible-content-height);
+            opacity: 1;
+        }
+    }
+
+    @keyframes collapsible-up {
+        from {
+            height: var(--radix-collapsible-content-height);
+            opacity: 1;
+        }
+        to {
+            height: 0;
+            opacity: 0.85;
+        }
+    }
+
     --color-brand-50: #eef5fb;
     --color-brand-100: #d8e7f5;
     --color-brand-200: #b3cfe9;

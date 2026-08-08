@@ -1,6 +1,7 @@
 export type {
     Auth,
     BreadcrumbItem,
+    ChargeQuote,
     Coupon,
     CouponQuote,
     NavGroup,

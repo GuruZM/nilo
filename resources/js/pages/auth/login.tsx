@@ -1,6 +1,5 @@
 import AuthenticatedSessionController from '@/actions/App/Http/Controllers/Auth/AuthenticatedSessionController';
 import AuthField from '@/components/auth/auth-field';
-import FacebookLoginButton from '@/components/facebook-login-button';
 import GoogleLoginButton from '@/components/google-login-button';
 import LinkedInLoginButton from '@/components/linkedin-login-button';
 import NiloSpinner from '@/components/nilo-spinner';
@@ -66,7 +65,6 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                         autoFocus
                         tabIndex={1}
                         autoComplete="email webauthn"
-                        placeholder="you@company.com"
                         value={data.email}
                         onChange={(event) =>
                             setData('email', event.target.value)
@@ -83,7 +81,6 @@ export default function Login({ status, canResetPassword }: LoginProps) {
                         required
                         tabIndex={2}
                         autoComplete="current-password"
-                        placeholder="Enter your password"
                         value={data.password}
                         onChange={(event) =>
                             setData('password', event.target.value)
@@ -165,11 +162,8 @@ export default function Login({ status, canResetPassword }: LoginProps) {
 
                 <div className="flex items-center justify-center gap-3">
                     <GoogleLoginButton iconOnly tabIndex={7} />
-                    {oauth.facebook && (
-                        <FacebookLoginButton iconOnly tabIndex={8} />
-                    )}
                     {oauth.linkedin && (
-                        <LinkedInLoginButton iconOnly tabIndex={9} />
+                        <LinkedInLoginButton iconOnly tabIndex={8} />
                     )}
                 </div>
             </div>

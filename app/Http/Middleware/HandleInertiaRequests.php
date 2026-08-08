@@ -76,6 +76,15 @@ class HandleInertiaRequests extends Middleware
                 'success' => fn () => $request->session()->get('success'),
                 'info' => fn () => $request->session()->get('info'),
                 'error' => fn () => $request->session()->get('error'),
+
+                /**
+                 * Set when a client or supplier is created from inside a
+                 * half-built document. The builder redirects back to itself, so
+                 * these ids are the only way the picker can tell which of the
+                 * refreshed records is the new one and select it.
+                 */
+                'created_client_id' => fn () => $request->session()->get('created_client_id'),
+                'created_supplier_id' => fn () => $request->session()->get('created_supplier_id'),
             ],
 
             // ✅ Company context (available on every page)
@@ -159,7 +168,7 @@ class HandleInertiaRequests extends Middleware
                     return null;
                 }
 
-                $subscription = $user->subscription;
+                $subscription = $user->activeSubscription;
                 $plan = $subscription?->plan;
                 $limiter = new SubscriptionLimitService($user);
 
@@ -179,7 +188,6 @@ class HandleInertiaRequests extends Middleware
 
             // ✅ Which social login providers are enabled (drives the auth buttons)
             'oauth' => [
-                'facebook' => (bool) config('services.facebook.enabled'),
                 'linkedin' => (bool) config('services.linkedin-openid.enabled'),
             ],
         ];

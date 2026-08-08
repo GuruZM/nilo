@@ -457,6 +457,15 @@ const STATUS_TONES: Record<
         className: 'bg-rose-500/10 text-rose-700 dark:text-rose-400',
         icon: XCircle,
     },
+    /**
+     * A declined card. Without its own tone it falls back to amber and reads
+     * as "waiting on someone", which is the opposite of what happened — the
+     * gateway has already given its final answer.
+     */
+    failed: {
+        className: 'bg-rose-500/10 text-rose-700 dark:text-rose-400',
+        icon: XCircle,
+    },
     expired: {
         className: 'bg-rose-500/10 text-rose-700 dark:text-rose-400',
         icon: AlertTriangle,

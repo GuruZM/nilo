@@ -62,8 +62,9 @@ const iconClass = (isActive: boolean): string =>
 const labelClass =
     'flex-1 truncate text-left group-data-[collapsible=icon]:hidden';
 
+/** Turns in step with the panel below it, so the two read as one movement. */
 const chevronClass =
-    'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200 group-data-[collapsible=icon]:hidden';
+    'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-150 ease-out group-data-[collapsible=icon]:hidden';
 
 function NavItemNode({
     item,
@@ -103,7 +104,17 @@ function NavItemNode({
                         />
                     </CollapsibleTrigger>
 
-                    <CollapsibleContent className="group-data-[collapsible=icon]:hidden">
+                    <CollapsibleContent
+                        className={cn(
+                            // overflow-hidden is what makes the height keyframe
+                            // clip the rows instead of letting them spill out.
+                            'overflow-hidden',
+                            'data-[state=open]:animate-collapsible-down',
+                            'data-[state=closed]:animate-collapsible-up',
+                            'motion-reduce:animate-none',
+                            'group-data-[collapsible=icon]:hidden',
+                        )}
+                    >
                         <ul className="mt-1 ml-5 space-y-0.5 border-l border-sidebar-border pl-2">
                             {item.items?.map((child) => (
                                 <NavItemNode

@@ -91,7 +91,6 @@ export default function Password({ hasPassword = true }: PasswordProps) {
                                             type="password"
                                             className={fieldInputClass}
                                             autoComplete="current-password"
-                                            placeholder="Current password"
                                         />
 
                                         <InputError
@@ -112,7 +111,6 @@ export default function Password({ hasPassword = true }: PasswordProps) {
                                             type="password"
                                             className={fieldInputClass}
                                             autoComplete="new-password"
-                                            placeholder="New password"
                                         />
 
                                         <InputError message={errors.password} />
@@ -128,7 +126,6 @@ export default function Password({ hasPassword = true }: PasswordProps) {
                                             type="password"
                                             className={fieldInputClass}
                                             autoComplete="new-password"
-                                            placeholder="Confirm password"
                                         />
 
                                         <InputError

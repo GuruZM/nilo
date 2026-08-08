@@ -22,7 +22,10 @@ test('app sidebar renders main, settings, and admin navigation sections', functi
         ->toContain("title: 'Payments'")
         ->toContain("title: 'Inquiries'")
         ->toContain('<NavMain items={mainNavItems} label="Menu" />')
-        ->toMatch('/<NavMain\s+items=\{settingsNavItems\}\s+label="Settings"/')
+        // Settings is a collapsible row now, so it labels itself rather than
+        // heading a group of its own.
+        ->toContain('<NavMain items={settingsNavItems} />')
+        ->not->toContain('label="Settings"')
         ->toContain('<NavMain items={adminNavItems} label="Admin" />');
 
     expect($sidebar)
@@ -88,6 +91,82 @@ test('every v1 document type is reachable from the Documents group and suppliers
         '/href: \'\/clients\',.*?href: \'\/suppliers\',/s'
     );
 });
+
+test('settings collapse behind a single dropdown row instead of a permanent block', function () {
+    $sidebar = file_get_contents(__DIR__.'/../../resources/js/components/app-sidebar.tsx');
+
+    expect($sidebar)
+        // The icon the row renders with has to be imported to compile.
+        ->toContain('Settings,')
+        // One entry, and everything else hangs off its `items`. `href: '#'` so
+        // the row only ever toggles - it has no page of its own to visit.
+        ->toMatch(
+            '/const settingsNavItems: NavItem\[\] = \[\s*\{\s*'
+            ."title: 'Settings',\s*href: '#',\s*icon: Settings,\s*items: \[/"
+        );
+
+    $settingsGroup = settingsNavGroup($sidebar);
+
+    expect($settingsGroup)
+        ->toContain("href: '/settings/invoice-templates'")
+        ->toContain("href: '/settings/quotation-templates'")
+        ->toContain("href: '/settings/currencies'")
+        ->toContain("href: '/subscription'")
+        ->toContain('href: editAppearance()')
+        ->toContain('href: editProfile()');
+
+    // Landing on a settings page has to open the fold, or the active row would
+    // be hidden inside a closed group.
+    expect(file_get_contents(__DIR__.'/../../resources/js/components/nav-main.tsx'))
+        ->toContain('defaultOpen={isActive}');
+});
+
+test('the dropdown animates open and closed and respects reduced motion', function () {
+    $navMain = file_get_contents(__DIR__.'/../../resources/js/components/nav-main.tsx');
+    $css = file_get_contents(__DIR__.'/../../resources/css/app.css');
+
+    expect($navMain)
+        ->toContain('data-[state=open]:animate-collapsible-down')
+        ->toContain('data-[state=closed]:animate-collapsible-up')
+        // Without this the rows spill out of the box the height keyframe draws.
+        ->toContain("'overflow-hidden',")
+        ->toContain('motion-reduce:animate-none')
+        // The panel is the only thing that moves. Rows do not stagger, slide,
+        // or fade in on top of it - see the keyframe comment in app.css.
+        ->not->toContain('animate-in')
+        ->not->toContain('slide-in-from')
+        ->not->toContain('animationDelay');
+
+    expect($css)
+        ->toContain('--animate-collapsible-down:')
+        ->toContain('--animate-collapsible-up:')
+        ->toContain('@keyframes collapsible-down {')
+        ->toContain('@keyframes collapsible-up {')
+        // Radix publishes the measured height; the keyframe has to read it
+        // rather than animate to `auto`, which does not interpolate.
+        ->toContain('height: var(--radix-collapsible-content-height);');
+
+    // Short enough to read as the panel simply being there, and the fold never
+    // fades from nothing. Both are what keeps the movement quiet.
+    preg_match('/--animate-collapsible-down: collapsible-down (\d+)ms/', $css, $down);
+    preg_match('/--animate-collapsible-up: collapsible-up (\d+)ms/', $css, $up);
+
+    expect((int) $down[1])->toBeLessThanOrEqual(150);
+    expect((int) $up[1])->toBeLessThanOrEqual((int) $down[1]);
+    expect($css)->toContain('opacity: 0.85;')->not->toContain('opacity: 0;');
+});
+
+/** The `settingsNavItems` array, from its declaration to the next one. */
+function settingsNavGroup(string $sidebar): string
+{
+    $start = strpos($sidebar, 'const settingsNavItems');
+    $end = strpos($sidebar, 'const adminNavItems', $start);
+
+    expect($start)->not->toBeFalse();
+    expect($end)->not->toBeFalse();
+
+    return substr($sidebar, $start, $end - $start);
+}
 
 /** The `Documents` entry of `mainNavItems`, from its title to the next entry. */
 function documentsNavGroup(string $sidebar): string

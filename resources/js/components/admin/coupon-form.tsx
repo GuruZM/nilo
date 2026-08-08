@@ -161,7 +161,6 @@ export function CouponForm({
                                 setData('code', e.target.value.toUpperCase())
                             }
                             className={cn(fieldInputClass, 'uppercase')}
-                            placeholder="LAUNCH20"
                         />
                         <p className="text-xs text-muted-foreground">
                             Uppercase letters, numbers and hyphens. Customers
@@ -182,7 +181,6 @@ export function CouponForm({
                                 setData('description', e.target.value)
                             }
                             className={fieldInputClass}
-                            placeholder="Launch week promotion"
                         />
                         <p className="text-xs text-muted-foreground">
                             Shown to the customer once the code is applied.
@@ -243,7 +241,6 @@ export function CouponForm({
                                 setData('discount_value', e.target.value)
                             }
                             className={fieldInputClass}
-                            placeholder={isPercentage ? '20' : '50000'}
                         />
                         {isPercentage ? (
                             <p className="text-xs text-muted-foreground">
@@ -354,7 +351,6 @@ export function CouponForm({
                                 setData('max_redemptions', e.target.value)
                             }
                             className={fieldInputClass}
-                            placeholder="Unlimited"
                         />
                         <p className="text-xs text-muted-foreground">
                             {isEdit

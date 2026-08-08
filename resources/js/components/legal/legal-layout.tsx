@@ -10,7 +10,12 @@ interface LegalLayoutProps {
     children: ReactNode;
 }
 
-export default function LegalLayout({ title, lastUpdated, intro, children }: LegalLayoutProps) {
+export default function LegalLayout({
+    title,
+    lastUpdated,
+    intro,
+    children,
+}: LegalLayoutProps) {
     return (
         <>
             <Head title={title} />
@@ -25,8 +30,12 @@ export default function LegalLayout({ title, lastUpdated, intro, children }: Leg
                     <p className="text-sm font-semibold tracking-wider text-brand-300 uppercase">
                         Legal
                     </p>
-                    <h1 className="mt-3 text-4xl font-bold sm:text-5xl">{title}</h1>
-                    <p className="mt-4 text-sm text-white/60">Last updated: {lastUpdated}</p>
+                    <h1 className="mt-3 text-4xl font-bold sm:text-5xl">
+                        {title}
+                    </h1>
+                    <p className="mt-4 text-sm text-white/60">
+                        Last updated: {lastUpdated}
+                    </p>
                     {intro && (
                         <p className="mt-6 max-w-2xl text-base leading-relaxed text-white/80">
                             {intro}

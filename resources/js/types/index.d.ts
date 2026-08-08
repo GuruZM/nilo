@@ -34,6 +34,7 @@ export interface UsageData {
     companies: { used: number; limit: number };
     invoices: { used: number; limit: number };
     quotations: { used: number; limit: number };
+    purchase_orders: { used: number; limit: number };
     invoice_templates: { used: number; limit: number };
     quotation_templates: { used: number; limit: number };
 }
@@ -53,7 +54,6 @@ export interface SharedData {
     subscription: SubscriptionData | null;
     sidebarOpen: boolean;
     oauth: {
-        facebook: boolean;
         linkedin: boolean;
     };
     flash: {
@@ -141,4 +141,17 @@ export interface CouponQuote {
         description: string | null;
     } | null;
     error: string | null;
+}
+
+/**
+ * What the gateway will actually be asked to take. `rate` and `as_of` are null
+ * when the charge is in the plan's own currency and no conversion happened;
+ * when they are set they are frozen onto the payment at checkout, so the
+ * receipt stays true after the next FX sync.
+ */
+export interface ChargeQuote {
+    amount: number;
+    currency: string;
+    rate: number | null;
+    as_of: string | null;
 }

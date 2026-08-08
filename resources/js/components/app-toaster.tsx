@@ -1,5 +1,5 @@
-import { Toaster } from 'sonner';
 import type { CSSProperties } from 'react';
+import { Toaster } from 'sonner';
 
 /**
  * Toasts use the same solid brand blue as primary buttons. Colours are driven by

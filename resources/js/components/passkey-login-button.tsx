@@ -2,11 +2,12 @@ import NiloSpinner from '@/components/nilo-spinner';
 import { cn } from '@/lib/utils';
 import { router } from '@inertiajs/react';
 import { usePasskeyVerify } from '@laravel/passkeys/react';
-import { Fingerprint } from 'lucide-react';
+import { ChevronRight, Fingerprint } from 'lucide-react';
 import { useState } from 'react';
 
 interface PasskeyLoginButtonProps {
     label?: string;
+    hint?: string;
     tabIndex?: number;
     /**
      * Anchors the browser's passkey picker to an input marked
@@ -24,6 +25,7 @@ interface PasskeyLoginButtonProps {
  */
 export default function PasskeyLoginButton({
     label = 'Sign in with a passkey',
+    hint = 'Use your face, fingerprint or device PIN',
     tabIndex,
     autofill = false,
 }: PasskeyLoginButtonProps) {
@@ -73,19 +75,39 @@ export default function PasskeyLoginButton({
                 aria-busy={verifying}
                 data-test="passkey-login-button"
                 className={cn(
-                    'inline-flex h-12 w-full items-center justify-center gap-3 rounded-xl border border-border bg-white px-4 text-[15px] font-medium text-gray-700 shadow-sm transition-all hover:bg-gray-50 hover:shadow-md active:scale-[0.99] dark:border-input dark:bg-white/[0.04] dark:text-foreground dark:hover:bg-white/[0.08]',
-                    verifying && 'cursor-not-allowed opacity-50',
+                    'group relative isolate flex h-14 w-full items-center gap-3.5 overflow-hidden rounded-2xl border border-brand/15 bg-gradient-to-br from-brand-50 via-white to-brand-50/50 px-3.5 text-left shadow-sm transition-all duration-200 outline-none hover:-translate-y-px hover:border-brand/30 hover:shadow-lg hover:shadow-brand-900/10 focus-visible:ring-2 focus-visible:ring-brand-400 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:translate-y-0 active:scale-[0.995] dark:border-white/10 dark:from-brand-950/60 dark:via-white/[0.03] dark:to-brand-950/30 dark:hover:border-brand-400/30 dark:hover:shadow-black/30',
+                    verifying && 'pointer-events-none opacity-70',
                 )}
             >
+                {/* A sheen that sweeps across on hover, so the recommended path feels alive next to the plain provider buttons. */}
+                <span
+                    aria-hidden="true"
+                    className="pointer-events-none absolute inset-y-0 -left-full z-10 w-1/2 skew-x-12 bg-gradient-to-r from-transparent via-white/50 to-transparent transition-all duration-700 ease-out group-hover:left-full dark:via-white/10"
+                />
+
                 {verifying ? (
                     <>
-                        <NiloSpinner size={20} />
-                        Waiting for your device…
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-brand/10 dark:bg-white/10">
+                            <NiloSpinner size={20} />
+                        </span>
+                        <span className="text-[15px] font-semibold text-foreground">
+                            Waiting for your device…
+                        </span>
                     </>
                 ) : (
                     <>
-                        <Fingerprint className="size-5 text-brand" />
-                        {label}
+                        <span className="flex size-9 shrink-0 items-center justify-center rounded-xl bg-gradient-to-br from-brand-500 to-brand-700 text-white shadow-sm shadow-brand-900/30 transition-transform duration-200 group-hover:scale-105">
+                            <Fingerprint className="size-[18px]" />
+                        </span>
+                        <span className="flex min-w-0 flex-col">
+                            <span className="text-[15px] leading-tight font-semibold text-foreground">
+                                {label}
+                            </span>
+                            <span className="truncate text-xs leading-tight text-muted-foreground">
+                                {hint}
+                            </span>
+                        </span>
+                        <ChevronRight className="ml-auto size-4 shrink-0 text-brand/50 transition-transform duration-200 group-hover:translate-x-0.5 dark:text-brand-300/50" />
                     </>
                 )}
             </button>

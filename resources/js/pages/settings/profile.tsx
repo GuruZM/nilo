@@ -66,7 +66,6 @@ export default function Profile({
                                             name="name"
                                             required
                                             autoComplete="name"
-                                            placeholder="Full name"
                                         />
 
                                         <InputError message={errors.name} />
@@ -84,7 +83,6 @@ export default function Profile({
                                             name="email"
                                             required
                                             autoComplete="username"
-                                            placeholder="Email address"
                                         />
 
                                         <InputError message={errors.email} />

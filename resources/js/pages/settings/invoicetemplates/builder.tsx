@@ -915,7 +915,6 @@ export default function InvoiceTemplateBuilder({
                                                     )
                                                 }
                                                 className="min-h-[120px] rounded-xl"
-                                                placeholder="Payment terms..."
                                             />
                                         </div>
 
@@ -930,7 +929,6 @@ export default function InvoiceTemplateBuilder({
                                                     )
                                                 }
                                                 className="min-h-[90px] rounded-xl"
-                                                placeholder="Footer..."
                                             />
                                         </div>
                                     </motion.div>

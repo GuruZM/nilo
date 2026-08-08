@@ -33,9 +33,7 @@ export default function AuthField({
     const isPassword = type === 'password';
     const resolvedType = isPassword ? (reveal ? 'text' : 'password') : type;
 
-    const handleChange = (
-        event: React.ChangeEvent<HTMLInputElement>,
-    ): void => {
+    const handleChange = (event: React.ChangeEvent<HTMLInputElement>): void => {
         setFilled(event.target.value.length > 0);
         onChange?.(event);
     };

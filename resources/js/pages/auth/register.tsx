@@ -7,7 +7,6 @@ import { ArrowRight, Lock, Mail, Pointer, User } from 'lucide-react';
 import { useState } from 'react';
 
 import AuthField from '@/components/auth/auth-field';
-import FacebookLoginButton from '@/components/facebook-login-button';
 import GoogleLoginButton from '@/components/google-login-button';
 import InputError from '@/components/input-error';
 import LinkedInLoginButton from '@/components/linkedin-login-button';
@@ -52,7 +51,6 @@ export default function Register() {
                                 autoFocus
                                 tabIndex={1}
                                 autoComplete="name"
-                                placeholder="Jane Banda"
                                 error={errors.name}
                             />
 
@@ -65,7 +63,6 @@ export default function Register() {
                                 required
                                 tabIndex={2}
                                 autoComplete="email"
-                                placeholder="you@company.com"
                                 error={errors.email}
                             />
 
@@ -78,7 +75,6 @@ export default function Register() {
                                 required
                                 tabIndex={3}
                                 autoComplete="new-password"
-                                placeholder="Create a password"
                                 hint="Use at least 8 characters."
                                 error={errors.password}
                             />
@@ -92,7 +88,6 @@ export default function Register() {
                                 required
                                 tabIndex={4}
                                 autoComplete="new-password"
-                                placeholder="Re-enter your password"
                                 error={errors.password_confirmation}
                             />
 
@@ -200,22 +195,13 @@ export default function Register() {
                         onDisabledClick={() => setNudgeTerms(true)}
                         tabIndex={8}
                     />
-                    {oauth.facebook && (
-                        <FacebookLoginButton
-                            iconOnly
-                            intent="register"
-                            disabled={!agreedToTerms}
-                            onDisabledClick={() => setNudgeTerms(true)}
-                            tabIndex={9}
-                        />
-                    )}
                     {oauth.linkedin && (
                         <LinkedInLoginButton
                             iconOnly
                             intent="register"
                             disabled={!agreedToTerms}
                             onDisabledClick={() => setNudgeTerms(true)}
-                            tabIndex={10}
+                            tabIndex={9}
                         />
                     )}
                 </div>

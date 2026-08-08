@@ -48,8 +48,18 @@ interface UserShowProps {
     plans: Plan[];
 }
 
-const methodLabel = (method: string): string =>
-    method === 'airtel_money' ? 'Airtel Money' : 'Bank Transfer';
+const METHOD_LABELS: Record<string, string> = {
+    mobile_money: 'Mobile money',
+    /** Retired in favour of mobile_money; kept so old payments still read. */
+    airtel_money: 'Airtel Money',
+    bank_transfer: 'Bank transfer',
+    coupon: 'Coupon',
+    dpo: 'Card / mobile money',
+    free: 'Free plan',
+    admin_assigned: 'Assigned by Nilo',
+};
+
+const methodLabel = (method: string): string => METHOD_LABELS[method] ?? method;
 
 const STATUS_OPTIONS = [
     { value: 'active', label: 'Active' },

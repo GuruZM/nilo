@@ -28,6 +28,8 @@ import {
     LayoutTemplate,
     MessageSquare,
     Palette,
+    Receipt,
+    Settings,
     Shield,
     ShoppingCart,
     Tag,
@@ -76,6 +78,11 @@ const mainNavItems: NavItem[] = [
                 icon: FileSignature,
             },
             {
+                title: 'Receipts',
+                href: '/receipts',
+                icon: Receipt,
+            },
+            {
                 title: 'Credit Notes',
                 href: '/credit-notes',
                 icon: FileMinus,
@@ -110,36 +117,56 @@ const mainNavItems: NavItem[] = [
     },
 ];
 
+/**
+ * Configuration folds behind a single row rather than standing as its own
+ * labelled block. Settings is somewhere a user goes a handful of times and then
+ * leaves; the document register is where they work all day. Five permanent rows
+ * charged that daily list vertical space for the sake of the occasional visit.
+ * The group opens itself whenever a settings page is on screen, so the fold
+ * costs a click only when arriving from elsewhere.
+ */
 const settingsNavItems: NavItem[] = [
     {
-        title: 'Templates',
+        title: 'Settings',
         href: '#',
-        icon: LayoutTemplate,
+        icon: Settings,
         items: [
             {
-                title: 'Invoice Templates',
-                href: '/settings/invoice-templates',
+                title: 'Templates',
+                href: '#',
+                icon: LayoutTemplate,
+                items: [
+                    {
+                        title: 'Invoice Templates',
+                        href: '/settings/invoice-templates',
+                    },
+                    {
+                        title: 'Quotation Templates',
+                        href: '/settings/quotation-templates',
+                    },
+                ],
             },
             {
-                title: 'Quotation Templates',
-                href: '/settings/quotation-templates',
+                title: 'Currencies',
+                href: '/settings/currencies',
+                icon: Coins,
+            },
+            {
+                title: 'Billing',
+                href: '/subscription',
+                icon: CreditCard,
+            },
+            {
+                title: 'Appearance',
+                href: editAppearance(),
+                icon: Palette,
+            },
+            {
+                title: 'Profile & Security',
+                href: editProfile(),
+                icon: UserCog,
             },
         ],
-    },
-    {
-        title: 'Currencies',
-        href: '/settings/currencies',
-        icon: Coins,
-    },
-    {
-        title: 'Appearance',
-        href: editAppearance(),
-        icon: Palette,
-    },
-    {
-        title: 'Profile & Security',
-        href: editProfile(),
-        icon: UserCog,
     },
 ];
 
@@ -241,10 +268,8 @@ export function AppSidebar() {
                     {!inAdminMode && (
                         <>
                             <NavMain items={mainNavItems} label="Menu" />
-                            <NavMain
-                                items={settingsNavItems}
-                                label="Settings"
-                            />
+                            {/* No group label: the row is its own heading. */}
+                            <NavMain items={settingsNavItems} />
                         </>
                     )}
                     {isAdmin && <NavMain items={adminNavItems} label="Admin" />}

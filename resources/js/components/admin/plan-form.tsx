@@ -183,7 +183,6 @@ export function PlanForm({
                                 }
                             }}
                             className={fieldInputClass}
-                            placeholder="Growth"
                         />
                         {errors.name ? (
                             <p className="text-xs text-destructive">
@@ -201,7 +200,6 @@ export function PlanForm({
                                 fieldInputClass,
                                 isEdit && 'opacity-60',
                             )}
-                            placeholder="growth"
                             disabled={isEdit}
                         />
                         <p className="text-xs text-muted-foreground">
@@ -229,7 +227,6 @@ export function PlanForm({
                             }
                             rows={2}
                             className={cn(fieldInputClass, 'h-auto py-2')}
-                            placeholder="For growing businesses that need more capacity."
                         />
                         {errors.description ? (
                             <p className="text-xs text-destructive">

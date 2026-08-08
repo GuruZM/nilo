@@ -845,7 +845,6 @@ function ComplianceModal({
                             <input
                                 id={`document_name_${company.id}`}
                                 className={fieldInputClass}
-                                placeholder="e.g. Certificate of Incorporation"
                                 value={form.data.name}
                                 onChange={(e) =>
                                     form.setData('name', e.target.value)
@@ -2044,7 +2043,6 @@ function EditCompanyModal({ company }: { company: Company }) {
                             <div className="space-y-2">
                                 <Label>Primary color</Label>
                                 <Input
-                                    placeholder="#00417d"
                                     value={form.data.primary_color ?? ''}
                                     onChange={(e) =>
                                         form.setData(
