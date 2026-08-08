@@ -17,6 +17,7 @@ import {
     DialogTitle,
     DialogTrigger,
 } from '@/components/ui/dialog';
+import { SelectItem, SelectSeparator } from '@/components/ui/select';
 
 /** The two kinds of party a document can be addressed to. */
 export type ContactKind = 'client' | 'supplier';
@@ -166,8 +167,9 @@ export default function ContactDialog(props: EditProps | CreateProps) {
         form.post(endpoints[kind], {
             ...options,
             onSuccess: (page) => {
-                const flash = (page.props as { flash?: Record<string, unknown> })
-                    .flash;
+                const flash = (
+                    page.props as { flash?: Record<string, unknown> }
+                ).flash;
                 const createdId = Number(flash?.[createdIdKeys[kind]] ?? 0);
 
                 if (createdId) {
@@ -236,7 +238,6 @@ export default function ContactDialog(props: EditProps | CreateProps) {
                             onChange={(e) =>
                                 form.setData('email', e.target.value)
                             }
-                            placeholder={`${kind}@example.com`}
                             autoFocus={!isCreate}
                         />
                         {form.errors.email && (
@@ -272,7 +273,6 @@ export default function ContactDialog(props: EditProps | CreateProps) {
                                 onChange={(e) =>
                                     form.setData('phone', e.target.value)
                                 }
-                                placeholder="+260 900 000 000"
                             />
                             {form.errors.phone && (
                                 <p className="mt-1 text-xs text-destructive">
@@ -303,9 +303,7 @@ export default function ContactDialog(props: EditProps | CreateProps) {
                                 </>
                             ) : (
                                 <span className="capitalize">
-                                    {isCreate
-                                        ? `Add ${kind}`
-                                        : `Save ${kind}`}
+                                    {isCreate ? `Add ${kind}` : `Save ${kind}`}
                                 </span>
                             )}
                         </PillButton>
@@ -317,12 +315,23 @@ export default function ContactDialog(props: EditProps | CreateProps) {
 }
 
 /**
- * The row pinned to the bottom of a picker that opens the create dialog. It
- * sits inside Radix's `SelectContent`, which is a listbox — `onMouseDown` has
- * to be swallowed or the Select treats the press as an item selection and
- * clears the current value on the way out.
+ * The value the "New …" row reports when picked. A real `SelectItem` rather
+ * than a button, because Radix traps focus inside the listbox and only
+ * arrow-navigates items — a plain button in there is mouse-only. The picker
+ * peels this sentinel off in `onValueChange` and opens the dialog instead of
+ * storing it, so the current selection is left alone.
  */
-export function NewContactOption({
+export const NEW_CONTACT_VALUE = '__new_contact__';
+
+/**
+ * The label-row shortcut that opens the create dialog.
+ *
+ * It doubles up with {@see NewContactOption} on the pickers that have both. The
+ * row inside the dropdown is where you look at the moment you realise the
+ * contact is missing; this one is visible without opening anything, and is the
+ * only option on a native `select`, which cannot carry an extra row.
+ */
+export function NewContactButton({
     kind,
     onSelect,
 }: {
@@ -330,41 +339,41 @@ export function NewContactOption({
     onSelect: () => void;
 }) {
     return (
-        <div className="mt-1 border-t border-border pt-1">
-            <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={onSelect}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-sm font-medium text-brand-600 hover:bg-accent dark:text-brand-300"
-            >
-                <Plus className="h-4 w-4" />
-                <span className="capitalize">New {kind}</span>
-            </button>
-        </div>
+        <PillButton variant="ghost" size="sm" onClick={onSelect}>
+            <Plus className="h-4 w-4" />
+            <span className="capitalize">New {kind}</span>
+        </PillButton>
+    );
+}
+
+/** The row pinned to the bottom of a picker that opens the create dialog. */
+export function NewContactOption({ kind }: { kind: ContactKind }) {
+    return (
+        <>
+            <SelectSeparator />
+            <SelectItem value={NEW_CONTACT_VALUE}>
+                <span className="flex items-center gap-2 font-medium text-brand-600 dark:text-brand-300">
+                    <Plus className="h-4 w-4" />
+                    <span className="capitalize">New {kind}</span>
+                </span>
+            </SelectItem>
+        </>
     );
 }
 
 /**
  * Shared open/close wiring for a picker with a "New …" row in it.
  *
- * The dialog opens on the next tick so Radix's Select can unmount its portal
- * and hand focus back to the trigger first. Opening both in the same tick makes
- * the two focus traps fight, and the dialog lands with no field focused.
+ * The dialog opens on the next tick so the picker can finish closing and hand
+ * focus back to its trigger first. Opening both in the same tick makes the two
+ * focus traps fight, and the dialog lands with no field focused.
  */
 export function useNewContactDialog() {
-    const [selectOpen, setSelectOpen] = React.useState(false);
     const [dialogOpen, setDialogOpen] = React.useState(false);
 
     const openDialog = React.useCallback(() => {
-        setSelectOpen(false);
         window.setTimeout(() => setDialogOpen(true), 0);
     }, []);
 
-    return {
-        selectOpen,
-        setSelectOpen,
-        dialogOpen,
-        setDialogOpen,
-        openDialog,
-    };
+    return { dialogOpen, setDialogOpen, openDialog };
 }

@@ -9,12 +9,14 @@ use App\Models\Currency;
 use App\Models\InvoiceTemplate;
 use App\Models\Quotation;
 use App\Services\DocumentPrerequisites;
+use App\Services\Documents\CreateQuotation;
 use App\Services\QuotationDocumentRenderer;
 use App\Services\SubscriptionLimitService;
+use App\Support\DocumentRules;
+use App\Support\DocumentTotals;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\View;
@@ -26,7 +28,10 @@ use Inertia\Response;
 
 class QuotationController extends Controller
 {
-    public function __construct(private QuotationDocumentRenderer $documents) {}
+    public function __construct(
+        private QuotationDocumentRenderer $documents,
+        private CreateQuotation $creator,
+    ) {}
 
     private function resolveCompanyId(Request $request): ?int
     {
@@ -123,42 +128,13 @@ class QuotationController extends Controller
      */
     private function computeTotals(array $items, float $quotationDiscount, float $taxPercent): array
     {
-        $itemsGross = 0.0;
-        $lineDiscountTotal = 0.0;
+        $totals = DocumentTotals::compute($items, $quotationDiscount, $taxPercent);
 
-        foreach ($items as $i => $row) {
-            $qty = (float) $row['quantity'];
-            $price = (float) $row['unit_price'];
-            $discount = (float) ($row['discount'] ?? 0);
+        /** The shared class names the whole-document discount generically. */
+        $totals['quotation_discount'] = $totals['document_discount'];
+        unset($totals['document_discount']);
 
-            $lineBase = $qty * $price;
-
-            $items[$i]['discount'] = $discount;
-            $items[$i]['tax'] = 0; // tax is quoted on the document, not the line
-            $items[$i]['line_total'] = max(0, $lineBase - $discount);
-            $items[$i]['sort_order'] = $i;
-
-            $itemsGross += $lineBase;
-            $lineDiscountTotal += $discount;
-        }
-
-        $discountTotal = $lineDiscountTotal + $quotationDiscount;
-
-        $total = round(max(0, $itemsGross - $discountTotal), 2);
-        $subtotal = round($total / (1 + ($taxPercent / 100)), 2);
-        $taxTotal = round($total - $subtotal, 2);
-
-        return [
-            'items' => $items,
-            'items_gross' => $itemsGross,
-            'subtotal' => $subtotal,
-            'line_discount_total' => $lineDiscountTotal,
-            'quotation_discount' => $quotationDiscount,
-            'discount_total' => $discountTotal,
-            'tax_percent' => $taxPercent,
-            'tax_total' => $taxTotal,
-            'total' => $total,
-        ];
+        return $totals;
     }
 
     /**
@@ -271,27 +247,13 @@ class QuotationController extends Controller
         $this->guardPrerequisites($companyId);
         $user = $request->user();
 
+        /**
+         * The create rules plus `embed`, which only the preview understands —
+         * it picks the render mode below, and an unvalidated key would be
+         * dropped from `$data` and silently fall back to the framed preview.
+         */
         $data = $request->validate([
-            'client_id' => ['required', 'integer', $this->clientRule($companyId)],
-            'quotation_template_id' => ['required', 'integer', $this->templateRule($companyId)],
-            'title' => ['nullable', 'string', 'max:190'],
-            'reference' => ['nullable', 'string', 'max:190'],
-            'issue_date' => ['required', 'date'],
-            'valid_until' => ['nullable', 'date', 'after_or_equal:issue_date'],
-            'currency_code' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')],
-            'status' => ['required', Rule::in(['draft', 'sent', 'accepted', 'expired'])],
-            'notes' => ['nullable', 'string'],
-            'terms' => ['nullable', 'string'],
-            'quotation_discount' => ['nullable', 'numeric', 'min:0'],
-            'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
-
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.description' => ['required', 'string', 'max:255'],
-            'items.*.unit' => ['nullable', 'string', 'max:50'],
-            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-            'items.*.unit_price' => ['required', 'numeric', 'min:0'],
-            'items.*.discount' => ['nullable', 'numeric', 'min:0'],
-
+            ...DocumentRules::quotation($companyId),
             'embed' => ['nullable', 'boolean'],
         ]);
 
@@ -405,49 +367,8 @@ class QuotationController extends Controller
             ]);
         }
 
-        $totals = $this->computeTotals(
-            $data['items'],
-            (float) ($data['quotation_discount'] ?? 0),
-            (float) ($data['tax_percent'] ?? 0),
-        );
-
         try {
-            $quotation = DB::transaction(function () use ($companyId, $user, $data, $totals): Quotation {
-                $sequence = Quotation::query()
-                    ->where('company_id', $companyId)
-                    ->count() + 1;
-
-                $quotation = Quotation::query()->create([
-                    'company_id' => $companyId,
-                    'client_id' => (int) $data['client_id'],
-                    'quotation_template_id' => (int) $data['quotation_template_id'],
-                    'created_by' => $user?->id,
-                    'number' => 'QUO-'.str_pad((string) $sequence, 6, '0', STR_PAD_LEFT),
-                    'reference' => $data['reference'] ?? null,
-                    'title' => $data['title'] ?? null,
-                    'issue_date' => $data['issue_date'],
-                    'valid_until' => $data['valid_until'] ?? null,
-                    'currency_code' => strtoupper((string) $data['currency_code']),
-
-                    'subtotal' => $totals['subtotal'],
-
-                    /** Both are kept so the UI can show the breakdown. */
-                    'quotation_discount' => $totals['quotation_discount'],
-                    'discount_total' => $totals['discount_total'],
-
-                    'tax_percent' => $totals['tax_percent'],
-                    'tax_total' => $totals['tax_total'],
-                    'total' => $totals['total'],
-
-                    'status' => $data['status'],
-                    'notes' => $data['notes'] ?? null,
-                    'terms' => $data['terms'] ?? null,
-                ]);
-
-                $quotation->items()->createMany($totals['items']);
-
-                return $quotation;
-            });
+            $quotation = $this->creator->handle($companyId, $user, $data);
         } catch (QueryException $exception) {
             if ((string) $exception->getCode() === '42P01') {
                 return back()

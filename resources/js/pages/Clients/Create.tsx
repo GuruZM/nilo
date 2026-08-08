@@ -115,7 +115,6 @@ export default function ClientsCreate() {
                                     >
                                         <input
                                             id="name"
-                                            placeholder="e.g. Cozyhouse Interiors"
                                             value={form.data.name}
                                             onChange={(e) =>
                                                 form.setData(
@@ -135,7 +134,6 @@ export default function ClientsCreate() {
                                     >
                                         <input
                                             id="contact_person"
-                                            placeholder="e.g. Mary Zulu"
                                             value={
                                                 form.data.contact_person ?? ''
                                             }
@@ -156,7 +154,6 @@ export default function ClientsCreate() {
                                             <input
                                                 id="email"
                                                 type="email"
-                                                placeholder="billing@client.com"
                                                 value={form.data.email ?? ''}
                                                 onChange={(e) =>
                                                     form.setData(
@@ -178,7 +175,6 @@ export default function ClientsCreate() {
                                             <Phone className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                             <input
                                                 id="phone"
-                                                placeholder="+260…"
                                                 value={form.data.phone ?? ''}
                                                 onChange={(e) =>
                                                     form.setData(
@@ -200,7 +196,6 @@ export default function ClientsCreate() {
                                             <IdCard className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                             <input
                                                 id="tpin"
-                                                placeholder="e.g. 100XXXXXXX"
                                                 value={form.data.tpin ?? ''}
                                                 onChange={(e) =>
                                                     form.setData(
@@ -225,7 +220,6 @@ export default function ClientsCreate() {
                                             <MapPin className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                             <input
                                                 id="address"
-                                                placeholder="Street, Area"
                                                 value={form.data.address ?? ''}
                                                 onChange={(e) =>
                                                     form.setData(
@@ -245,7 +239,6 @@ export default function ClientsCreate() {
                                     <FormField label="City" htmlFor="city">
                                         <input
                                             id="city"
-                                            placeholder="e.g. Lusaka"
                                             value={form.data.city ?? ''}
                                             onChange={(e) =>
                                                 form.setData(
@@ -264,7 +257,6 @@ export default function ClientsCreate() {
                                     >
                                         <input
                                             id="country"
-                                            placeholder="e.g. Zambia"
                                             value={form.data.country ?? ''}
                                             onChange={(e) =>
                                                 form.setData(
@@ -282,7 +274,6 @@ export default function ClientsCreate() {
                                     <textarea
                                         id="notes"
                                         rows={4}
-                                        placeholder="Any extra details (delivery instructions, preferred contact time, etc.)"
                                         value={form.data.notes ?? ''}
                                         onChange={(e) =>
                                             form.setData(

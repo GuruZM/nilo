@@ -1,5 +1,5 @@
 // resources/js/Pages/Invoices/Show.tsx
-import { Form, Head, router, usePage } from '@inertiajs/react';
+import { Form, Head, Link, router, usePage } from '@inertiajs/react';
 import { motion } from 'framer-motion';
 import {
     Download,
@@ -509,10 +509,20 @@ export default function InvoiceShow({
                                         <SoftTile>
                                             <div className="flex items-start justify-between gap-3">
                                                 <div className="min-w-0">
-                                                    <div className="truncate text-sm font-semibold">
+                                                    {/*
+                                                        Through to the receipt
+                                                        register, which is where
+                                                        this receipt sits
+                                                        alongside every other one
+                                                        the company has issued.
+                                                    */}
+                                                    <Link
+                                                        href={`/receipts/${payment.id}`}
+                                                        className="truncate text-sm font-semibold hover:underline"
+                                                    >
                                                         {payment.receipt_number ??
                                                             'Receipt'}
-                                                    </div>
+                                                    </Link>
                                                     <div className="mt-0.5 truncate text-xs text-muted-foreground">
                                                         {[
                                                             payment.paid_on,
@@ -662,7 +672,6 @@ export default function InvoiceShow({
                                                 id="payment_reference"
                                                 name="reference"
                                                 type="text"
-                                                placeholder="Optional"
                                                 className={fieldInputClass}
                                             />
                                         </FormField>

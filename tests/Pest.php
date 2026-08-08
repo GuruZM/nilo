@@ -42,6 +42,113 @@ expect()->extend('toBeOne', function () {
 */
 
 /**
+ * A subscriber with nothing bought yet.
+ */
+function dpoBuyer(): App\Models\User
+{
+    return App\Models\User::factory()->create();
+}
+
+/**
+ * @param  array<string, mixed>  $overrides
+ */
+function dpoPlan(array $overrides = []): App\Models\Plan
+{
+    return App\Models\Plan::factory()->create([
+        'slug' => 'standard',
+        'name' => 'Standard',
+        'price' => 100000,
+        'currency_code' => 'ZMW',
+        'billing_period' => 'monthly',
+        'is_active' => true,
+        'is_public' => true,
+        ...$overrides,
+    ]);
+}
+
+/**
+ * A subscriber part-way through a paid period — the state an upgrade starts
+ * from, and the one the pending-row bug used to wipe out.
+ */
+function activeSubscriber(?App\Models\Plan $plan = null): App\Models\User
+{
+    $user = App\Models\User::factory()->create();
+
+    /** Plan slugs are unique, so a second subscriber joins the first's plan. */
+    $plan ??= App\Models\Plan::query()->where('slug', 'standard')->first() ?? dpoPlan();
+
+    App\Models\Subscription::create([
+        'user_id' => $user->id,
+        'plan_id' => $plan->id,
+        'status' => 'active',
+        'starts_at' => now(),
+        'ends_at' => now()->addMonth(),
+        'payment_method' => 'bank_transfer',
+    ]);
+
+    return $user->refresh();
+}
+
+/**
+ * DPO answers every request with the same XML envelope, whatever was asked.
+ */
+function dpoResponse(string $body): string
+{
+    return '<?xml version="1.0" encoding="utf-8"?><API3G>'.$body.'</API3G>';
+}
+
+function fakeCreateToken(string $token = 'TOKEN123'): void
+{
+    Illuminate\Support\Facades\Http::fake([
+        'secure.3gdirectpay.com/*' => Illuminate\Support\Facades\Http::response(dpoResponse(
+            "<Result>000</Result><TransToken>{$token}</TransToken><TransRef>REF123</TransRef>"
+        )),
+    ]);
+}
+
+function fakeVerify(string $code, string $explanation = 'Whatever'): void
+{
+    Illuminate\Support\Facades\Http::fake([
+        'secure.3gdirectpay.com/*' => Illuminate\Support\Facades\Http::response(dpoResponse(
+            "<Result>{$code}</Result><ResultExplanation>{$explanation}</ResultExplanation>"
+        )),
+    ]);
+}
+
+/**
+ * A payment already handed off to DPO, waiting on an outcome — the state every
+ * callback and reconciliation test starts from.
+ */
+function pendingDpoPayment(
+    App\Models\User $user,
+    App\Models\Plan $plan,
+    ?App\Models\Coupon $coupon = null,
+    string $token = 'TOKEN123',
+): App\Models\Payment {
+    $subscription = App\Models\Subscription::create([
+        'user_id' => $user->id,
+        'plan_id' => $plan->id,
+        'status' => 'pending_payment',
+        'starts_at' => now(),
+        'payment_method' => App\Models\Payment::METHOD_DPO,
+    ]);
+
+    return App\Models\Payment::factory()->dpo()->create([
+        'user_id' => $user->id,
+        'subscription_id' => $subscription->id,
+        'plan_id' => $plan->id,
+        'coupon_id' => $coupon?->id,
+        'coupon_code' => $coupon?->code,
+        'amount' => $plan->price,
+        'original_amount' => $plan->price,
+        'currency_code' => $plan->currency_code,
+        'charged_amount' => $plan->price,
+        'charged_currency_code' => $plan->currency_code,
+        'dpo_transaction_token' => $token,
+    ]);
+}
+
+/**
  * A user with an active company, an invoice template and one client, which is
  * the minimum state the invoice create endpoint accepts.
  *
@@ -245,4 +352,69 @@ function creditNotePayload(App\Models\Invoice $invoice, float $unitPrice = 1000,
             ],
         ],
     ];
+}
+
+/**
+ * A standalone receipt form submission — money received with no invoice behind
+ * it, which is the whole point of the payload.
+ *
+ * @return array<string, mixed>
+ */
+function standaloneReceiptPayload(App\Models\Client $client, float $amount = 1500): array
+{
+    return [
+        'client_id' => $client->id,
+        'amount' => $amount,
+        'currency_code' => 'ZMW',
+        'paid_on' => '2026-07-20',
+        'method' => 'cash',
+        'reference' => null,
+        'description' => 'Deposit on borehole installation',
+    ];
+}
+
+/*
+|--------------------------------------------------------------------------
+| Mobile API helpers
+|--------------------------------------------------------------------------
+|
+| API feature tests authenticate with a real bearer token rather than
+| `actingAs`, so the token guard, the company header and the subscription gate
+| are all genuinely exercised on the way in — the same path a phone takes.
+|
+*/
+
+/**
+ * Headers for an authenticated, company-scoped API call.
+ *
+ * The company is named explicitly because that is how the API works: nothing
+ * is read from the session, so a test that omits it is testing the fallback,
+ * not the normal case.
+ *
+ * @return array<string, string>
+ */
+function apiHeaders(App\Models\User $user, ?int $companyId = null, string $device = 'Pixel 8'): array
+{
+    $headers = ['Authorization' => 'Bearer '.$user->createToken($device)->plainTextToken];
+
+    $companyId ??= $user->current_company_id;
+
+    if ($companyId) {
+        $headers['X-Company-Id'] = (string) $companyId;
+    }
+
+    return $headers;
+}
+
+/**
+ * A user on a subscription who owns one company, with a client and an invoice
+ * template ready — the API twin of {@see invoiceCreationContext()}.
+ *
+ * @return array{0: \App\Models\User, 1: \App\Models\Client, 2: \App\Models\InvoiceTemplate, 3: array<string, string>}
+ */
+function apiContext(?string $clientEmail = null): array
+{
+    [$user, $client, $template] = invoiceCreationContext($clientEmail);
+
+    return [$user, $client, $template, apiHeaders($user)];
 }

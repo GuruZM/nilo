@@ -463,7 +463,8 @@ export default function CreditNotesCreate({
              */
             onError: (errors) =>
                 toast.error(
-                    errors?.invoice_id ||
+                    errors?.company_id ||
+                        errors?.invoice_id ||
                         errors?.status ||
                         errors?.credit_note_discount ||
                         errors?.items ||
@@ -689,7 +690,6 @@ export default function CreditNotesCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Goods returned, overbilled, cancelled…"
                                                     />
                                                     {form.errors.reason && (
                                                         <p className="mt-1 text-sm text-destructive">
@@ -710,7 +710,6 @@ export default function CreditNotesCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Optional credit note title"
                                                     />
                                                 </FormField>
 
@@ -728,7 +727,6 @@ export default function CreditNotesCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Customer reference"
                                                     />
                                                 </FormField>
                                             </div>
@@ -747,7 +745,6 @@ export default function CreditNotesCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Optional notes for the client"
                                                     />
                                                 </FormField>
                                                 <FormField label="Terms">
@@ -763,7 +760,6 @@ export default function CreditNotesCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Optional terms and conditions"
                                                     />
                                                 </FormField>
                                             </div>
@@ -867,7 +863,6 @@ export default function CreditNotesCreate({
                                                                                     .value,
                                                                             )
                                                                         }
-                                                                        placeholder="Service or item being credited"
                                                                         required
                                                                     />
                                                                 </FormField>
@@ -892,7 +887,6 @@ export default function CreditNotesCreate({
                                                                                         .value,
                                                                                 )
                                                                             }
-                                                                            placeholder="hrs / pcs"
                                                                         />
                                                                     </FormField>
 

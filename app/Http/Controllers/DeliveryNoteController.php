@@ -2,17 +2,13 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\DocumentType;
 use App\Models\DeliveryNote;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Services\DocumentRenderer;
-use App\Services\TemplateProvisioner;
-use App\Support\DocumentNumber;
+use App\Services\Documents\CreateDeliveryNoteFromInvoice;
+use App\Support\DocumentRules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 use Inertia\Response;
@@ -21,7 +17,7 @@ class DeliveryNoteController extends Controller
 {
     public function __construct(
         private DocumentRenderer $documents,
-        private TemplateProvisioner $templates,
+        private CreateDeliveryNoteFromInvoice $creator,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -111,38 +107,7 @@ class DeliveryNoteController extends Controller
 
         abort_unless((int) $invoice->company_id === $companyId, 403);
 
-        $invoice->loadMissing(['items', 'client']);
-
-        $note = DB::transaction(function () use ($request, $invoice, $companyId): DeliveryNote {
-            $note = DeliveryNote::query()->create([
-                'company_id' => $companyId,
-                'client_id' => $invoice->client_id,
-                'invoice_id' => $invoice->id,
-                'delivery_note_template_id' => $this->templates
-                    ->forCompany($companyId, DocumentType::DeliveryNote)->id,
-                'created_by' => $request->user()?->id,
-                'number' => DocumentNumber::nextFor(DeliveryNote::class, $companyId, DocumentType::DeliveryNote),
-                'reference' => $invoice->number,
-                'issue_date' => now()->toDateString(),
-                'currency_code' => $invoice->currency_code,
-                'deliver_to' => $invoice->client?->name,
-                'delivery_address' => $invoice->client?->address,
-                'status' => 'draft',
-            ]);
-
-            $note->items()->createMany(
-                $invoice->items->map(fn (InvoiceItem $item, int $index) => [
-                    'description' => $item->description,
-                    'unit' => $item->unit,
-                    'quantity' => $item->quantity,
-                    'sort_order' => $index,
-                ])->all()
-            );
-
-            $invoice->update(['has_delivery_note' => true]);
-
-            return $note;
-        });
+        $note = $this->creator->handle($companyId, $request->user(), $invoice);
 
         return redirect()
             ->route('delivery-notes.show', $note)
@@ -189,15 +154,7 @@ class DeliveryNoteController extends Controller
     {
         abort_unless((int) $deliveryNote->company_id === $this->companyId($request), 403);
 
-        $data = $request->validate([
-            'status' => ['required', Rule::in(DeliveryNote::STATUSES)],
-            'delivery_date' => ['nullable', 'date'],
-            'deliver_to' => ['nullable', 'string', 'max:190'],
-            'delivery_address' => ['nullable', 'string', 'max:500'],
-            'received_by' => ['nullable', 'string', 'max:190'],
-            'received_on' => ['nullable', 'date'],
-            'notes' => ['nullable', 'string'],
-        ]);
+        $data = $request->validate(DocumentRules::deliveryNoteUpdate());
 
         $deliveryNote->update($data);
 

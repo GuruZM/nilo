@@ -6,16 +6,22 @@ use App\Contracts\RenderableDocument;
 use App\Enums\DocumentType;
 use App\Models\Concerns\FreezesExchangeRate;
 use App\Services\InvoiceSettlement;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * One payment received against one invoice.
+ * One payment received, and the receipt it prints as.
  *
  * The receipt a client is given is this row printed through the shared sheet,
  * so there is no separate receipt entity to keep in step.
+ *
+ * Most rows settle an invoice. Some do not: money is also received where no
+ * invoice was raised, and those rows carry a `client_id` and a `description`
+ * instead of an `invoice_id`. Both kinds live here so that both draw from one
+ * `RCP-` sequence — see the migration that made `invoice_id` nullable.
  */
 class InvoicePayment extends Model implements RenderableDocument
 {
@@ -33,6 +39,7 @@ class InvoicePayment extends Model implements RenderableDocument
     protected $fillable = [
         'company_id',
         'invoice_id',
+        'client_id',
         'recorded_by',
         'receipt_number',
         'amount',
@@ -41,6 +48,7 @@ class InvoicePayment extends Model implements RenderableDocument
         'paid_on',
         'method',
         'reference',
+        'description',
     ];
 
     /**
@@ -57,9 +65,34 @@ class InvoicePayment extends Model implements RenderableDocument
         ];
     }
 
+    /**
+     * Receipts raised without an invoice behind them.
+     */
+    public function scopeStandalone(Builder $query): Builder
+    {
+        return $query->whereNull('invoice_id');
+    }
+
+    /**
+     * Receipts that settle an invoice.
+     */
+    public function scopeAgainstInvoice(Builder $query): Builder
+    {
+        return $query->whereNotNull('invoice_id');
+    }
+
     public function invoice(): BelongsTo
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    /**
+     * Only set on a standalone receipt. An invoice-backed one reaches its client
+     * through the invoice, so that this and the invoice cannot disagree.
+     */
+    public function client(): BelongsTo
+    {
+        return $this->belongsTo(Client::class);
     }
 
     public function company(): BelongsTo
@@ -91,13 +124,19 @@ class InvoicePayment extends Model implements RenderableDocument
 
     public function counterparty(): ?Model
     {
-        return $this->invoice?->client;
+        $this->loadMissing(['invoice.client', 'client']);
+
+        return $this->invoice?->client ?? $this->client;
     }
 
     /**
-     * A receipt has no lines of its own — it prints one row naming the invoice
-     * the money settled, which keeps it on the shared sheet instead of needing
-     * a second layout for a single figure.
+     * A receipt has no lines of its own — it prints one row saying what the
+     * money was for, which keeps it on the shared sheet instead of needing a
+     * second layout for a single figure.
+     *
+     * An invoice-backed receipt names its invoice, because that is what the
+     * client needs to reconcile against. A standalone one has nothing to point
+     * at, so it says what it was told the payment was for.
      *
      * @return Collection<int, Model>
      */
@@ -105,10 +144,13 @@ class InvoicePayment extends Model implements RenderableDocument
     {
         $this->loadMissing('invoice');
 
+        $description = $this->invoice
+            ? 'Payment for invoice '.($this->invoice->number ?? '—')
+            : ($this->description ?: 'Payment received');
+
         return new Collection([
             new InvoiceItem([
-                'description' => 'Payment for invoice '.($this->invoice?->number ?? '—')
-                    .' ('.$this->methodLabel().')',
+                'description' => $description.' ('.$this->methodLabel().')',
                 'quantity' => 1,
                 'unit_price' => (float) $this->amount,
                 'line_total' => (float) $this->amount,

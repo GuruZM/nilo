@@ -16,7 +16,12 @@ import {
 import * as React from 'react';
 import { toast } from 'sonner';
 
-import EditClientDialog from '@/components/edit-client-dialog';
+import ContactDialog, {
+    NEW_CONTACT_VALUE,
+    NewContactButton,
+    NewContactOption,
+    useNewContactDialog,
+} from '@/components/contact-dialog';
 import LimitNoticeDialog, {
     type LimitNotice,
 } from '@/components/limit-notice-dialog';
@@ -141,6 +146,9 @@ export default function InvoicesCreate({
     const currencyList = currencies?.all ?? [];
     const activeCurrency = currencies?.current ?? null;
     const hasClients = clients.length > 0;
+
+    /** Lets a forgotten client be added without abandoning the invoice. */
+    const newClient = useNewContactDialog();
     const hasCurrencies = currencyList.length > 0;
     const canCreateInvoice = hasActiveCompany && hasClients && hasCurrencies;
     const initialCurrencyCode =
@@ -597,6 +605,20 @@ export default function InvoicesCreate({
             {/* Plan refusals stop the work, so they get a dialog not a toast. */}
             <LimitNoticeDialog notice={limitNotice} />
 
+            {/*
+             * Mounted at page level rather than beside the picker: the setup
+             * banner opens it too, and the picker lives on a step that unmounts
+             * once the user moves on.
+             */}
+            <ContactDialog
+                mode="create"
+                kind="client"
+                documentLabel="invoice"
+                open={newClient.dialogOpen}
+                onOpenChange={newClient.setDialogOpen}
+                onCreated={(id) => form.setData('client_id', String(id))}
+            />
+
             <div className="mx-auto w-full py-3">
                 {!canCreateInvoice && (
                     <Panel className="mb-4">
@@ -617,15 +639,12 @@ export default function InvoicesCreate({
                             <div className="flex flex-col gap-2 sm:flex-row">
                                 {hasActiveCompany ? (
                                     <>
-                                        <Link
-                                            href="/clients/create"
-                                            className={pillButtonClass(
-                                                'solid',
-                                                'sm',
-                                            )}
+                                        <PillButton
+                                            size="sm"
+                                            onClick={newClient.openDialog}
                                         >
                                             Add client
-                                        </Link>
+                                        </PillButton>
                                         <Link
                                             href="/settings/currencies"
                                             className={pillButtonClass(
@@ -685,6 +704,14 @@ export default function InvoicesCreate({
                                             <SectionTitle
                                                 icon={ClipboardList}
                                                 title="Invoice details"
+                                                action={
+                                                    <NewContactButton
+                                                        kind="client"
+                                                        onSelect={
+                                                            newClient.openDialog
+                                                        }
+                                                    />
+                                                }
                                             />
 
                                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -696,16 +723,25 @@ export default function InvoicesCreate({
                                                         }
                                                         message="Pick a client to bill."
                                                     />
+                                                    {/*
+                                                     * Deliberately never
+                                                     * disabled: with no clients
+                                                     * on file the picker is the
+                                                     * only way to reach the
+                                                     * "New client" row.
+                                                     */}
                                                     <Select
                                                         value={
                                                             form.data.client_id
                                                         }
-                                                        disabled={!hasClients}
                                                         onValueChange={(v) =>
-                                                            form.setData(
-                                                                'client_id',
-                                                                v,
-                                                            )
+                                                            v ===
+                                                            NEW_CONTACT_VALUE
+                                                                ? newClient.openDialog()
+                                                                : form.setData(
+                                                                      'client_id',
+                                                                      v,
+                                                                  )
                                                         }
                                                     >
                                                         <SelectTrigger
@@ -737,18 +773,19 @@ export default function InvoicesCreate({
                                                             ) : (
                                                                 <div className="px-2 py-3 text-sm text-muted-foreground">
                                                                     No clients
-                                                                    yet. Add a
-                                                                    client to
-                                                                    continue.
+                                                                    yet.
                                                                 </div>
                                                             )}
+
+                                                            <NewContactOption kind="client" />
                                                         </SelectContent>
                                                     </Select>
+
                                                     {!hasClients && (
                                                         <p className="mt-1 text-sm text-muted-foreground">
-                                                            Create a client
-                                                            first, then return
-                                                            here.
+                                                            No clients yet — add
+                                                            one from the picker
+                                                            above.
                                                         </p>
                                                     )}
                                                     {form.errors.client_id && (
@@ -897,7 +934,6 @@ export default function InvoicesCreate({
                                                                             {
                                                                                 c.code
                                                                             }{' '}
-                                                                            —{' '}
                                                                             {
                                                                                 c.name
                                                                             }
@@ -935,7 +971,6 @@ export default function InvoicesCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Optional invoice title"
                                                     />
                                                 </FormField>
 
@@ -953,7 +988,6 @@ export default function InvoicesCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="PO / Reference"
                                                     />
                                                 </FormField>
                                             </div>
@@ -1623,8 +1657,10 @@ export default function InvoicesCreate({
                                                         title="Email to client"
                                                         action={
                                                             selectedClient ? (
-                                                                <EditClientDialog
-                                                                    client={
+                                                                <ContactDialog
+                                                                    mode="edit"
+                                                                    kind="client"
+                                                                    contact={
                                                                         selectedClient
                                                                     }
                                                                     documentLabel="invoice"
@@ -2085,8 +2121,16 @@ const reviewCellClass = cn(
  * The wizard's label/value shapes. Each is a thin arrangement over a shared
  * primitive, so the builder wears the same surfaces as the rest of the app.
  */
-function SectionTitle({ icon: Icon, title }: { icon: any; title: string }) {
-    return <PanelHeader icon={Icon} title={title} />;
+function SectionTitle({
+    icon: Icon,
+    title,
+    action,
+}: {
+    icon: any;
+    title: string;
+    action?: React.ReactNode;
+}) {
+    return <PanelHeader icon={Icon} title={title} action={action} />;
 }
 
 function Row({

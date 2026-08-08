@@ -3,6 +3,7 @@
 use App\Http\Controllers\ClientController;
 use App\Http\Controllers\CompanyController;
 use App\Http\Controllers\CurrencyController;
+use App\Http\Controllers\DpoPaymentController;
 use App\Http\Controllers\EnterpriseInquiryController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\InvoiceTemplateController;
@@ -30,8 +31,30 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/subscription/payment', [PaymentController::class, 'store'])->name('subscription.payment.store');
     Route::post('/subscription/redeem', [PaymentController::class, 'redeem'])->name('subscription.redeem');
     Route::get('/subscription/payment-status', [PaymentController::class, 'status'])->name('subscription.payment.status');
+    Route::post('/subscription/payment/dpo', [DpoPaymentController::class, 'checkout'])
+        ->middleware('throttle:10,1')
+        ->name('subscription.payment.dpo');
+    Route::post('/subscription/payment/dpo/{payment}/resume', [DpoPaymentController::class, 'resume'])
+        ->whereNumber('payment')
+        ->name('subscription.payment.dpo.resume');
     Route::get('/subscription/enterprise', [EnterpriseInquiryController::class, 'create'])->name('subscription.enterprise');
     Route::post('/subscription/enterprise', [EnterpriseInquiryController::class, 'store'])->name('subscription.enterprise.store');
+});
+
+/*
+ * DPO's own callbacks, deliberately outside `auth`. DPO holds a transaction for
+ * up to 24 hours against a 2 hour session, and some mobile money flows finish
+ * on a different device, so a paying customer must end up subscribed whether or
+ * not their cookie survived the trip. The payment is found by DPO's transaction
+ * token and the outcome is always re-fetched from DPO, never read off the query
+ * string, so holding a token cannot forge a payment — only re-settle one that
+ * its owner already made.
+ */
+Route::middleware('throttle:30,1')->group(function () {
+    Route::get('/subscription/payment/dpo/return', [DpoPaymentController::class, 'return'])
+        ->name('subscription.payment.dpo.return');
+    Route::get('/subscription/payment/dpo/cancel', [DpoPaymentController::class, 'cancel'])
+        ->name('subscription.payment.dpo.cancel');
 });
 
 // Admin routes (auth + admin role, no subscription required)
@@ -56,6 +79,7 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::get('/payments/{payment}', [\App\Http\Controllers\Admin\PaymentController::class, 'show'])->name('payments.show');
     Route::post('/payments/{payment}/confirm', [\App\Http\Controllers\Admin\PaymentController::class, 'confirm'])->name('payments.confirm');
     Route::post('/payments/{payment}/reject', [\App\Http\Controllers\Admin\PaymentController::class, 'reject'])->name('payments.reject');
+    Route::post('/payments/{payment}/verify', [\App\Http\Controllers\Admin\PaymentController::class, 'verify'])->name('payments.verify');
     Route::get('/inquiries', [\App\Http\Controllers\Admin\InquiryController::class, 'index'])->name('inquiries.index');
     Route::post('/inquiries/{inquiry}/handle', [\App\Http\Controllers\Admin\InquiryController::class, 'handle'])->name('inquiries.handle');
 });
@@ -161,6 +185,34 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
 
         Route::get('/{quotation}/print', [\App\Http\Controllers\QuotationController::class, 'print'])
             ->whereNumber('quotation')
+            ->name('print');
+    });
+
+    /**
+     * The receipt register, covering both kinds. Receipts against an invoice are
+     * still created and deleted through the `invoices.payments.*` routes above,
+     * which own the settlement side; these routes list, show and print them
+     * alongside the standalone ones raised here.
+     */
+    Route::prefix('receipts')->name('receipts.')->group(function () {
+        Route::get('/', [\App\Http\Controllers\ReceiptController::class, 'index'])->name('index');
+        Route::get('/create', [\App\Http\Controllers\ReceiptController::class, 'create'])->name('create');
+        Route::post('/', [\App\Http\Controllers\ReceiptController::class, 'store'])->name('store');
+
+        Route::get('/{receipt}', [\App\Http\Controllers\ReceiptController::class, 'show'])
+            ->whereNumber('receipt')
+            ->name('show');
+
+        Route::delete('/{receipt}', [\App\Http\Controllers\ReceiptController::class, 'destroy'])
+            ->whereNumber('receipt')
+            ->name('destroy');
+
+        Route::get('/{receipt}/preview', [\App\Http\Controllers\ReceiptController::class, 'preview'])
+            ->whereNumber('receipt')
+            ->name('preview');
+
+        Route::get('/{receipt}/print', [\App\Http\Controllers\ReceiptController::class, 'print'])
+            ->whereNumber('receipt')
             ->name('print');
     });
 

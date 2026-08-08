@@ -475,7 +475,6 @@ export default function DeliveryNoteShow({
                                     <input
                                         id="deliver_to"
                                         type="text"
-                                        placeholder="e.g. Acme Warehouse"
                                         value={form.data.deliver_to}
                                         onChange={(e) =>
                                             form.setData(
@@ -495,7 +494,6 @@ export default function DeliveryNoteShow({
                                     <textarea
                                         id="delivery_address"
                                         rows={3}
-                                        placeholder="Where the goods are dropped"
                                         value={form.data.delivery_address}
                                         onChange={(e) =>
                                             form.setData(
@@ -518,7 +516,6 @@ export default function DeliveryNoteShow({
                                     <input
                                         id="received_by"
                                         type="text"
-                                        placeholder="Name of the person signing"
                                         value={form.data.received_by}
                                         onChange={(e) =>
                                             signFor(
@@ -564,7 +561,6 @@ export default function DeliveryNoteShow({
                                     <textarea
                                         id="notes"
                                         rows={3}
-                                        placeholder="Anything the driver or the recipient should know"
                                         value={form.data.notes}
                                         onChange={(e) =>
                                             form.setData(

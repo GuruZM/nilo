@@ -3,6 +3,7 @@
 use App\Models\CreditNote;
 use App\Models\CreditNoteItem;
 use App\Models\Currency;
+use App\Models\User;
 
 beforeEach(function () {
     Currency::firstOrCreate(['code' => 'ZMW'], [
@@ -171,6 +172,36 @@ it('refuses an invoice belonging to another company', function () {
     $this->actingAs($user)
         ->post('/credit-notes', creditNotePayload($foreignInvoice, 100))
         ->assertSessionHasErrors('invoice_id');
+});
+
+/* ---------------------------- Create page ---------------------------- */
+
+/**
+ * Without a company this route used to throw a validation exception, which
+ * redirects back to wherever the user came from carrying an error no page
+ * renders — so the "Add credit note" button appeared to do nothing at all. The
+ * page owns that state and explains it instead.
+ */
+it('renders the create page for a user with no company', function () {
+    $user = User::factory()->withSubscription()->create();
+
+    $this->actingAs($user)
+        ->get('/credit-notes/create')
+        ->assertSuccessful()
+        ->assertInertia(fn ($page) => $page
+            ->component('CreditNotes/Create')
+            ->where('hasActiveCompany', false)
+            ->has('invoices', 0)
+        );
+});
+
+/** The form still has to be told why, should it ever be submitted anyway. */
+it('names the missing company when a credit note is posted without one', function () {
+    $user = User::factory()->withSubscription()->create();
+
+    $this->actingAs($user)
+        ->post('/credit-notes', ['issue_date' => '2026-01-01', 'status' => 'draft'])
+        ->assertSessionHasErrors(['company_id' => 'No active company selected.']);
 });
 
 /* ---------------------------- Effect ---------------------------- */

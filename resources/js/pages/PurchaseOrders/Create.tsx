@@ -14,6 +14,12 @@ import {
 import * as React from 'react';
 import { toast } from 'sonner';
 
+import ContactDialog, {
+    NEW_CONTACT_VALUE,
+    NewContactButton,
+    NewContactOption,
+    useNewContactDialog,
+} from '@/components/contact-dialog';
 import LimitNoticeDialog, {
     type LimitNotice,
 } from '@/components/limit-notice-dialog';
@@ -134,6 +140,9 @@ export default function PurchaseOrdersCreate({
     const currencyList = currencies?.all ?? [];
     const activeCurrency = currencies?.current ?? null;
     const hasSuppliers = suppliers.length > 0;
+
+    /** Lets a missing supplier be added without abandoning the order. */
+    const newSupplier = useNewContactDialog();
     const hasCurrencies = currencyList.length > 0;
 
     /**
@@ -475,6 +484,20 @@ export default function PurchaseOrdersCreate({
             {/* Plan refusals stop the work, so they get a dialog not a toast. */}
             <LimitNoticeDialog notice={limitNotice} />
 
+            {/*
+             * Mounted at page level rather than beside the picker: the setup
+             * banner opens it too, and the picker lives on a step that unmounts
+             * once the user moves on.
+             */}
+            <ContactDialog
+                mode="create"
+                kind="supplier"
+                documentLabel="purchase order"
+                open={newSupplier.dialogOpen}
+                onOpenChange={newSupplier.setDialogOpen}
+                onCreated={(id) => form.setData('supplier_id', String(id))}
+            />
+
             <div className="mx-auto w-full py-3">
                 {/*
                  * This page is reachable straight from the URL, so it cannot
@@ -514,16 +537,13 @@ export default function PurchaseOrdersCreate({
                                         Manage companies
                                     </Link>
                                 ) : !hasSuppliers ? (
-                                    <Link
-                                        href="/suppliers"
-                                        className={pillButtonClass(
-                                            'solid',
-                                            'sm',
-                                        )}
+                                    <PillButton
+                                        size="sm"
+                                        onClick={newSupplier.openDialog}
                                     >
                                         <Factory className="h-4 w-4" />
-                                        Go to suppliers
-                                    </Link>
+                                        Add supplier
+                                    </PillButton>
                                 ) : (
                                     <Link
                                         href="/settings/currencies"
@@ -572,6 +592,14 @@ export default function PurchaseOrdersCreate({
                                             <SectionTitle
                                                 icon={ClipboardList}
                                                 title="Purchase order details"
+                                                action={
+                                                    <NewContactButton
+                                                        kind="supplier"
+                                                        onSelect={
+                                                            newSupplier.openDialog
+                                                        }
+                                                    />
+                                                }
                                             />
 
                                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -586,17 +614,27 @@ export default function PurchaseOrdersCreate({
                                                         }
                                                         message="Pick the supplier you are ordering from."
                                                     />
+                                                    {/*
+                                                     * Deliberately never
+                                                     * disabled: with no
+                                                     * suppliers on file the
+                                                     * picker is the only way to
+                                                     * reach the "New supplier"
+                                                     * row.
+                                                     */}
                                                     <Select
                                                         value={
                                                             form.data
                                                                 .supplier_id
                                                         }
-                                                        disabled={!hasSuppliers}
                                                         onValueChange={(v) =>
-                                                            form.setData(
-                                                                'supplier_id',
-                                                                v,
-                                                            )
+                                                            v ===
+                                                            NEW_CONTACT_VALUE
+                                                                ? newSupplier.openDialog()
+                                                                : form.setData(
+                                                                      'supplier_id',
+                                                                      v,
+                                                                  )
                                                         }
                                                     >
                                                         <SelectTrigger
@@ -628,17 +666,18 @@ export default function PurchaseOrdersCreate({
                                                             ) : (
                                                                 <div className="px-2 py-3 text-sm text-muted-foreground">
                                                                     No suppliers
-                                                                    yet. Add one
-                                                                    to continue.
+                                                                    yet.
                                                                 </div>
                                                             )}
+
+                                                            <NewContactOption kind="supplier" />
                                                         </SelectContent>
                                                     </Select>
                                                     {!hasSuppliers && (
                                                         <p className="mt-1 text-sm text-muted-foreground">
-                                                            Add a supplier
-                                                            first, then return
-                                                            here.
+                                                            No suppliers yet —
+                                                            add one from the
+                                                            picker above.
                                                         </p>
                                                     )}
                                                     {selectedSupplier?.contact_person && (
@@ -789,7 +828,6 @@ export default function PurchaseOrdersCreate({
                                                                             {
                                                                                 c.code
                                                                             }{' '}
-                                                                            —{' '}
                                                                             {
                                                                                 c.name
                                                                             }
@@ -843,7 +881,6 @@ export default function PurchaseOrdersCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Where the goods should be sent"
                                                     />
                                                     {form.errors
                                                         .delivery_address && (
@@ -868,7 +905,6 @@ export default function PurchaseOrdersCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Optional purchase order title"
                                                     />
                                                 </FormField>
 
@@ -886,7 +922,6 @@ export default function PurchaseOrdersCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Supplier or internal reference"
                                                     />
                                                 </FormField>
                                             </div>
@@ -905,7 +940,6 @@ export default function PurchaseOrdersCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Optional notes for the supplier"
                                                     />
                                                 </FormField>
                                                 <FormField label="Terms">
@@ -921,7 +955,6 @@ export default function PurchaseOrdersCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Optional terms and conditions"
                                                     />
                                                 </FormField>
                                             </div>
@@ -1025,7 +1058,6 @@ export default function PurchaseOrdersCreate({
                                                                                     .value,
                                                                             )
                                                                         }
-                                                                        placeholder="Goods or service being ordered"
                                                                         required
                                                                     />
                                                                 </FormField>
@@ -1050,7 +1082,6 @@ export default function PurchaseOrdersCreate({
                                                                                         .value,
                                                                                 )
                                                                             }
-                                                                            placeholder="hrs / pcs"
                                                                         />
                                                                     </FormField>
 
@@ -1677,8 +1708,16 @@ const reviewCellClass = cn(
  * The wizard's label/value shapes. Each is a thin arrangement over a shared
  * primitive, so the builder wears the same surfaces as the rest of the app.
  */
-function SectionTitle({ icon: Icon, title }: { icon: any; title: string }) {
-    return <PanelHeader icon={Icon} title={title} />;
+function SectionTitle({
+    icon: Icon,
+    title,
+    action,
+}: {
+    icon: any;
+    title: string;
+    action?: React.ReactNode;
+}) {
+    return <PanelHeader icon={Icon} title={title} action={action} />;
 }
 
 function Row({

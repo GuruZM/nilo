@@ -16,7 +16,12 @@ import {
 import * as React from 'react';
 import { toast } from 'sonner';
 
-import EditClientDialog from '@/components/edit-client-dialog';
+import ContactDialog, {
+    NEW_CONTACT_VALUE,
+    NewContactButton,
+    NewContactOption,
+    useNewContactDialog,
+} from '@/components/contact-dialog';
 import LimitNoticeDialog, {
     type LimitNotice,
 } from '@/components/limit-notice-dialog';
@@ -144,6 +149,9 @@ export default function QuotationsCreate({
     const currencyList = currencies?.all ?? [];
     const activeCurrency = currencies?.current ?? null;
     const hasClients = clients.length > 0;
+
+    /** Lets a forgotten client be added without abandoning the quotation. */
+    const newClient = useNewContactDialog();
     const hasTemplates = templates.length > 0;
     const hasCurrencies = currencyList.length > 0;
     const canCreateQuotation =
@@ -597,6 +605,20 @@ export default function QuotationsCreate({
             {/* Plan refusals stop the work, so they get a dialog not a toast. */}
             <LimitNoticeDialog notice={limitNotice} />
 
+            {/*
+             * Mounted at page level rather than beside the picker: the setup
+             * banner opens it too, and the picker lives on a step that unmounts
+             * once the user moves on.
+             */}
+            <ContactDialog
+                mode="create"
+                kind="client"
+                documentLabel="quotation"
+                open={newClient.dialogOpen}
+                onOpenChange={newClient.setDialogOpen}
+                onCreated={(id) => form.setData('client_id', String(id))}
+            />
+
             <div className="mx-auto w-full py-3">
                 {!canCreateQuotation && (
                     <Panel className="mb-4">
@@ -617,15 +639,12 @@ export default function QuotationsCreate({
                             <div className="flex flex-col gap-2 sm:flex-row">
                                 {hasActiveCompany ? (
                                     <>
-                                        <Link
-                                            href="/clients/create"
-                                            className={pillButtonClass(
-                                                'solid',
-                                                'sm',
-                                            )}
+                                        <PillButton
+                                            size="sm"
+                                            onClick={newClient.openDialog}
                                         >
                                             Add client
-                                        </Link>
+                                        </PillButton>
                                         <Link
                                             href="/settings/quotation-templates"
                                             className={pillButtonClass(
@@ -694,6 +713,14 @@ export default function QuotationsCreate({
                                             <SectionTitle
                                                 icon={ClipboardList}
                                                 title="Quotation details"
+                                                action={
+                                                    <NewContactButton
+                                                        kind="client"
+                                                        onSelect={
+                                                            newClient.openDialog
+                                                        }
+                                                    />
+                                                }
                                             />
 
                                             <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -705,16 +732,25 @@ export default function QuotationsCreate({
                                                         }
                                                         message="Pick a client to quote."
                                                     />
+                                                    {/*
+                                                     * Deliberately never
+                                                     * disabled: with no clients
+                                                     * on file the picker is the
+                                                     * only way to reach the
+                                                     * "New client" row.
+                                                     */}
                                                     <Select
                                                         value={
                                                             form.data.client_id
                                                         }
-                                                        disabled={!hasClients}
                                                         onValueChange={(v) =>
-                                                            form.setData(
-                                                                'client_id',
-                                                                v,
-                                                            )
+                                                            v ===
+                                                            NEW_CONTACT_VALUE
+                                                                ? newClient.openDialog()
+                                                                : form.setData(
+                                                                      'client_id',
+                                                                      v,
+                                                                  )
                                                         }
                                                     >
                                                         <SelectTrigger
@@ -746,18 +782,18 @@ export default function QuotationsCreate({
                                                             ) : (
                                                                 <div className="px-2 py-3 text-sm text-muted-foreground">
                                                                     No clients
-                                                                    yet. Add a
-                                                                    client to
-                                                                    continue.
+                                                                    yet.
                                                                 </div>
                                                             )}
+
+                                                            <NewContactOption kind="client" />
                                                         </SelectContent>
                                                     </Select>
                                                     {!hasClients && (
                                                         <p className="mt-1 text-sm text-muted-foreground">
-                                                            Create a client
-                                                            first, then return
-                                                            here.
+                                                            No clients yet — add
+                                                            one from the picker
+                                                            above.
                                                         </p>
                                                     )}
                                                     {form.errors.client_id && (
@@ -946,7 +982,6 @@ export default function QuotationsCreate({
                                                                             {
                                                                                 c.code
                                                                             }{' '}
-                                                                            —{' '}
                                                                             {
                                                                                 c.name
                                                                             }
@@ -985,7 +1020,6 @@ export default function QuotationsCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Optional quotation title"
                                                     />
                                                 </FormField>
 
@@ -1003,7 +1037,6 @@ export default function QuotationsCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Customer reference"
                                                     />
                                                 </FormField>
                                             </div>
@@ -1022,7 +1055,6 @@ export default function QuotationsCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Optional notes for the client"
                                                     />
                                                 </FormField>
                                                 <FormField label="Terms">
@@ -1038,7 +1070,6 @@ export default function QuotationsCreate({
                                                                 e.target.value,
                                                             )
                                                         }
-                                                        placeholder="Optional terms and conditions"
                                                     />
                                                 </FormField>
                                             </div>
@@ -1142,7 +1173,6 @@ export default function QuotationsCreate({
                                                                                     .value,
                                                                             )
                                                                         }
-                                                                        placeholder="Service or item description"
                                                                         required
                                                                     />
                                                                 </FormField>
@@ -1167,7 +1197,6 @@ export default function QuotationsCreate({
                                                                                         .value,
                                                                                 )
                                                                             }
-                                                                            placeholder="hrs / pcs"
                                                                         />
                                                                     </FormField>
 
@@ -1467,8 +1496,10 @@ export default function QuotationsCreate({
                                                     title="Email to client"
                                                     action={
                                                         selectedClient ? (
-                                                            <EditClientDialog
-                                                                client={
+                                                            <ContactDialog
+                                                                mode="edit"
+                                                                kind="client"
+                                                                contact={
                                                                     selectedClient
                                                                 }
                                                                 documentLabel="quotation"
@@ -1920,8 +1951,16 @@ const reviewCellClass = cn(
  * The wizard's label/value shapes. Each is a thin arrangement over a shared
  * primitive, so the builder wears the same surfaces as the rest of the app.
  */
-function SectionTitle({ icon: Icon, title }: { icon: any; title: string }) {
-    return <PanelHeader icon={Icon} title={title} />;
+function SectionTitle({
+    icon: Icon,
+    title,
+    action,
+}: {
+    icon: any;
+    title: string;
+    action?: React.ReactNode;
+}) {
+    return <PanelHeader icon={Icon} title={title} action={action} />;
 }
 
 function Row({

@@ -24,6 +24,16 @@ function invoiceWithLines(): array
 {
     [$user, $client, $template] = invoiceCreationContext('client@example.com');
 
+    /**
+     * The money assertions below check that words like "Price" and "Total"
+     * never reach a delivery note. Faker's company names are drawn from a
+     * surname list that includes Price, so roughly one run in three hundred
+     * printed the client's own name and failed. Fixed names keep those
+     * assertions about the template rather than about the fixture.
+     */
+    $client->update(['name' => 'Bolt Buyers Limited']);
+    App\Models\Company::whereKey($user->current_company_id)->update(['name' => 'Steelworks Zambia Limited']);
+
     $invoice = Invoice::query()->create([
         'company_id' => $user->current_company_id,
         'client_id' => $client->id,

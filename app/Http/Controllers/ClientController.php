@@ -98,12 +98,14 @@ class ClientController extends Controller
                 ]);
             }
 
-            Client::create([
+            $client = Client::create([
                 'company_id' => $companyId,
                 ...$data,
             ]);
 
-            return back()->with('success', 'Client created.');
+            return back()
+                ->with('success', 'Client created.')
+                ->with('created_client_id', $client->id);
         } catch (ValidationException $e) {
             throw $e; // 422 -> Inertia onError
         } catch (\Throwable $e) {

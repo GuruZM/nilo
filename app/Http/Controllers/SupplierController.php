@@ -86,11 +86,13 @@ class SupplierController extends Controller
     {
         $companyId = $this->companyId($request);
 
-        Supplier::query()->create(
+        $supplier = Supplier::query()->create(
             $request->validate($this->rules()) + ['company_id' => $companyId]
         );
 
-        return back()->with('success', 'Supplier added.');
+        return back()
+            ->with('success', 'Supplier added.')
+            ->with('created_supplier_id', $supplier->id);
     }
 
     public function update(Request $request, Supplier $supplier): RedirectResponse

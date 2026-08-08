@@ -86,16 +86,16 @@ it('serves the freshly added email to the invoice create page', function () {
 });
 
 it('edits the client in place without discarding the invoice in progress', function () {
-    $dialog = file_get_contents(__DIR__.'/../../resources/js/components/edit-client-dialog.tsx');
+    $dialog = file_get_contents(__DIR__.'/../../resources/js/components/contact-dialog.tsx');
     $create = file_get_contents(__DIR__.'/../../resources/js/pages/Invoices/Create.tsx');
 
     expect($dialog)
-        ->toContain('export default function EditClientDialog')
-        ->toContain('form.put(`/clients/${client.id}`')
+        ->toContain('export default function ContactDialog')
+        ->toContain('form.put(`${endpoints[kind]}/${contact!.id}`')
         // Keeps the caller mounted, so the half-built invoice survives.
         ->toContain('preserveState: true');
 
-    expect($create)->toContain('<EditClientDialog');
+    expect($create)->toContain('<ContactDialog');
 });
 
 /** The quotation builder shares the dialog, so it gets the same behaviour. */
@@ -103,8 +103,8 @@ it('offers the same in-place client edit while building a quotation', function (
     $create = file_get_contents(__DIR__.'/../../resources/js/pages/Quotations/Create.tsx');
 
     expect($create)
-        ->toContain("import EditClientDialog from '@/components/edit-client-dialog'")
-        ->toContain('<EditClientDialog');
+        ->toContain('import ContactDialog, {')
+        ->toContain('<ContactDialog');
 });
 
 /**
@@ -113,7 +113,7 @@ it('offers the same in-place client edit while building a quotation', function (
  * saving the client also submitted the invoice.
  */
 it('saves the client without also submitting the invoice', function () {
-    $dialog = file_get_contents(__DIR__.'/../../resources/js/components/edit-client-dialog.tsx');
+    $dialog = file_get_contents(__DIR__.'/../../resources/js/components/contact-dialog.tsx');
     $create = file_get_contents(__DIR__.'/../../resources/js/pages/Invoices/Create.tsx');
     $quotation = file_get_contents(__DIR__.'/../../resources/js/pages/Quotations/Create.tsx');
 

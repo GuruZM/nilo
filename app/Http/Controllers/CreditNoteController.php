@@ -2,14 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\DocumentType;
 use App\Models\Company;
 use App\Models\CreditNote;
 use App\Models\Invoice;
 use App\Services\DocumentRenderer;
+use App\Services\Documents\CreateCreditNote;
+use App\Services\Documents\CreditNoteHeadroom;
 use App\Services\InvoiceSettlement;
-use App\Services\TemplateProvisioner;
-use App\Support\DocumentNumber;
+use App\Support\DocumentRules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -31,7 +31,8 @@ class CreditNoteController extends Controller
     public function __construct(
         private DocumentRenderer $documents,
         private InvoiceSettlement $settlement,
-        private TemplateProvisioner $templates,
+        private CreateCreditNote $creator,
+        private CreditNoteHeadroom $headroom,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -77,55 +78,6 @@ class CreditNoteController extends Controller
         return Rule::exists('invoices', 'id')->where('company_id', $companyId);
     }
 
-    /**
-     * Totals for a credit note.
-     *
-     * Identical arithmetic to {@see QuotationController::computeTotals()} —
-     * prices are tax-inclusive, discounts come off the gross, and tax is carved
-     * back out by subtraction so subtotal and tax always reconcile to the
-     * total. The three must not drift apart.
-     *
-     * @param  array<int, array<string, mixed>>  $items
-     * @return array{items: array<int, array<string, mixed>>, subtotal: float, credit_note_discount: float, discount_total: float, tax_percent: float, tax_total: float, total: float}
-     */
-    private function computeTotals(array $items, float $creditNoteDiscount, float $taxPercent): array
-    {
-        $itemsGross = 0.0;
-        $lineDiscountTotal = 0.0;
-
-        foreach ($items as $i => $row) {
-            $qty = (float) $row['quantity'];
-            $price = (float) $row['unit_price'];
-            $discount = (float) ($row['discount'] ?? 0);
-
-            $lineBase = $qty * $price;
-
-            $items[$i]['discount'] = $discount;
-            $items[$i]['tax'] = 0;
-            $items[$i]['line_total'] = max(0, $lineBase - $discount);
-            $items[$i]['sort_order'] = $i;
-
-            $itemsGross += $lineBase;
-            $lineDiscountTotal += $discount;
-        }
-
-        $discountTotal = $lineDiscountTotal + $creditNoteDiscount;
-
-        $total = round(max(0, $itemsGross - $discountTotal), 2);
-        $subtotal = round($total / (1 + ($taxPercent / 100)), 2);
-        $taxTotal = round($total - $subtotal, 2);
-
-        return [
-            'items' => $items,
-            'subtotal' => $subtotal,
-            'credit_note_discount' => $creditNoteDiscount,
-            'discount_total' => $discountTotal,
-            'tax_percent' => $taxPercent,
-            'tax_total' => $taxTotal,
-            'total' => $total,
-        ];
-    }
-
     public function index(Request $request): Response
     {
         $companyId = $this->resolveCompanyId($request);
@@ -160,9 +112,27 @@ class CreditNoteController extends Controller
         ]);
     }
 
+    /**
+     * The page is rendered even with no company to render it for. Throwing here
+     * would redirect back with an error keyed to a field this form does not
+     * have, so nothing would say why the page never opened — the button would
+     * simply look broken. {@see CreditNotes/Create} owns the empty state and
+     * points at /companies.
+     */
     public function create(Request $request): Response
     {
-        $companyId = $this->companyId($request);
+        $companyId = $this->resolveCompanyId($request);
+
+        if (! $companyId) {
+            return Inertia::render('CreditNotes/Create', [
+                'invoices' => [],
+                'defaultCurrencyCode' => Company::defaultCurrencyCodeFor(
+                    null,
+                    $request->user()?->current_currency_code,
+                ),
+                'hasActiveCompany' => false,
+            ]);
+        }
 
         $invoices = Invoice::query()
             ->where('company_id', $companyId)
@@ -202,133 +172,21 @@ class CreditNoteController extends Controller
          * note in a different currency would subtract a foreign number from a
          * local balance and could wrongly settle the invoice.
          */
-        $data = $request->validate([
-            'invoice_id' => ['required', 'integer', $this->invoiceRule($companyId)],
-            'issue_date' => ['required', 'date'],
-            'status' => ['required', Rule::in(['draft', 'issued', 'void'])],
-            'reason' => ['nullable', 'string', 'max:190'],
-            'title' => ['nullable', 'string', 'max:190'],
-            'reference' => ['nullable', 'string', 'max:190'],
-            'notes' => ['nullable', 'string'],
-            'terms' => ['nullable', 'string'],
-            'credit_note_discount' => ['nullable', 'numeric', 'min:0'],
-            'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
-
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.description' => ['required', 'string', 'max:255'],
-            'items.*.unit' => ['nullable', 'string', 'max:50'],
-            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-            'items.*.unit_price' => ['required', 'numeric', 'min:0'],
-            'items.*.discount' => ['nullable', 'numeric', 'min:0'],
-        ]);
+        $data = $request->validate(DocumentRules::creditNote($companyId));
 
         $invoice = Invoice::query()
             ->where('id', (int) $data['invoice_id'])
             ->where('company_id', $companyId)
             ->firstOrFail();
 
-        $totals = $this->computeTotals(
-            $data['items'],
-            (float) ($data['credit_note_discount'] ?? 0),
-            (float) ($data['tax_percent'] ?? 0),
-        );
+        /** Checked against the same figure that will be written, not a second one. */
+        $this->headroom->guard($invoice, $this->creator->totals($data)['total'], $data['status']);
 
-        $this->guardCreditFits($invoice, $totals['total'], $data['status']);
-
-        $note = DB::transaction(function () use ($companyId, $user, $data, $totals, $invoice): CreditNote {
-            $note = CreditNote::query()->create([
-                'company_id' => $companyId,
-                'client_id' => $invoice->client_id,
-                'invoice_id' => $invoice->id,
-
-                /**
-                 * Provisioning happens inside the transaction on purpose: it may
-                 * create the company's first credit note template, and a rolled
-                 * back note must not leave that row behind.
-                 */
-                'credit_note_template_id' => $this->templates
-                    ->forCompany($companyId, DocumentType::CreditNote)->id,
-
-                'created_by' => $user?->id,
-                'number' => DocumentNumber::nextFor(CreditNote::class, $companyId, DocumentType::CreditNote),
-                'reference' => $data['reference'] ?? null,
-                'title' => $data['title'] ?? null,
-                'reason' => $data['reason'] ?? null,
-                'issue_date' => $data['issue_date'],
-
-                /** Never the submitted currency — a credit must match what it credits. */
-                'currency_code' => $invoice->currency_code,
-
-                'subtotal' => $totals['subtotal'],
-                'credit_note_discount' => $totals['credit_note_discount'],
-                'discount_total' => $totals['discount_total'],
-                'tax_percent' => $totals['tax_percent'],
-                'tax_total' => $totals['tax_total'],
-                'total' => $totals['total'],
-
-                'status' => $data['status'],
-                'notes' => $data['notes'] ?? null,
-                'terms' => $data['terms'] ?? null,
-            ]);
-
-            $note->items()->createMany($totals['items']);
-
-            $this->settlement->sync($invoice->fresh());
-
-            return $note;
-        });
+        $note = $this->creator->handle($companyId, $user, $invoice, $data);
 
         return redirect()
             ->route('credit-notes.show', $note)
             ->with('success', 'Credit note created.');
-    }
-
-    /**
-     * A credit that is about to be applied may not exceed what the invoice is
-     * still owed, or the ledger would show a negative balance. Drafts and voids
-     * are let through because they move nothing.
-     *
-     * `$ignoreNoteId` covers the case where the note under consideration is
-     * *already* counted in the balance: its own total is added back so it cannot
-     * block itself. The `applied()` scope is what makes that safe — a draft or
-     * voided note sums to zero and nothing is added back, which is right,
-     * because neither was ever subtracted.
-     *
-     * The balance is read outside the caller's transaction, so two credits
-     * raised at the same instant can both see the same room and both be
-     * accepted. That is the same concurrency gap as the payment cap in
-     * {@see InvoicePaymentController::store()}, and gets the same v1 answer:
-     * noted, not locked.
-     */
-    private function guardCreditFits(Invoice $invoice, float $total, string $status, ?int $ignoreNoteId = null): void
-    {
-        if (! in_array($status, CreditNote::APPLIED_STATUSES, true)) {
-            return;
-        }
-
-        $available = $this->settlement->balanceDue($invoice);
-
-        if ($ignoreNoteId) {
-            $existing = (float) $invoice->creditNotes()
-                ->applied()
-                ->where('id', $ignoreNoteId)
-                ->sum('total');
-
-            $available = round($available + $existing, 2);
-        }
-
-        /**
-         * Both figures are already rounded to the cent, so this epsilon only
-         * absorbs binary float noise — it is two orders of magnitude below the
-         * smallest real amount, and a credit one cent over is still refused.
-         */
-        if ($total > $available + 0.001) {
-            throw ValidationException::withMessages([
-                'items' => 'This credit of '.number_format($total, 2).' is more than the '
-                    .number_format($available, 2).' still outstanding on invoice '
-                    .$invoice->number.'.',
-            ]);
-        }
     }
 
     public function show(Request $request, CreditNote $creditNote): Response
@@ -393,7 +251,7 @@ class CreditNoteController extends Controller
 
         $invoice = $creditNote->invoice;
 
-        $this->guardCreditFits($invoice, (float) $creditNote->total, $data['status'], $creditNote->id);
+        $this->headroom->guard($invoice, (float) $creditNote->total, $data['status'], $creditNote->id);
 
         DB::transaction(function () use ($creditNote, $data, $invoice): void {
             $creditNote->update(['status' => $data['status']]);

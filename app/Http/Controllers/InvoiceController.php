@@ -7,15 +7,16 @@ use App\Models\Client;
 use App\Models\Company;
 use App\Models\Currency;
 use App\Models\Invoice;
-use App\Models\InvoiceItem;
 use App\Models\InvoicePayment;
 use App\Models\InvoiceTemplate;
 use App\Services\DocumentPrerequisites;
+use App\Services\Documents\CreateInvoice;
 use App\Services\InvoiceDocumentRenderer;
 use App\Services\InvoiceSettlement;
 use App\Services\SubscriptionLimitService;
+use App\Support\DocumentRules;
+use App\Support\DocumentTotals;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\View;
@@ -29,6 +30,7 @@ class InvoiceController extends Controller
     public function __construct(
         private InvoiceDocumentRenderer $documents,
         private InvoiceSettlement $settlement,
+        private CreateInvoice $creator,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -140,42 +142,13 @@ class InvoiceController extends Controller
      */
     private function computeTotals(array $items, float $invoiceDiscount, float $taxPercent): array
     {
-        $itemsGross = 0.0;
-        $lineDiscountTotal = 0.0;
+        $totals = DocumentTotals::compute($items, $invoiceDiscount, $taxPercent);
 
-        foreach ($items as $i => $row) {
-            $qty = (float) $row['quantity'];
-            $price = (float) $row['unit_price'];
-            $discount = (float) ($row['discount'] ?? 0);
+        /** The shared class names the whole-document discount generically. */
+        $totals['invoice_discount'] = $totals['document_discount'];
+        unset($totals['document_discount']);
 
-            $lineBase = $qty * $price;
-
-            $items[$i]['discount'] = $discount;
-            $items[$i]['tax'] = 0; // tax is charged on the invoice, not the line
-            $items[$i]['line_total'] = max(0, $lineBase - $discount);
-            $items[$i]['sort_order'] = $i;
-
-            $itemsGross += $lineBase;
-            $lineDiscountTotal += $discount;
-        }
-
-        $discountTotal = $lineDiscountTotal + $invoiceDiscount;
-
-        $total = round(max(0, $itemsGross - $discountTotal), 2);
-        $subtotal = round($total / (1 + ($taxPercent / 100)), 2);
-        $taxTotal = round($total - $subtotal, 2);
-
-        return [
-            'items' => $items,
-            'items_gross' => $itemsGross,
-            'subtotal' => $subtotal,
-            'line_discount_total' => $lineDiscountTotal,
-            'invoice_discount' => $invoiceDiscount,
-            'discount_total' => $discountTotal,
-            'tax_percent' => $taxPercent,
-            'tax_total' => $taxTotal,
-            'total' => $total,
-        ];
+        return $totals;
     }
 
     public function index(Request $request)
@@ -460,48 +433,7 @@ class InvoiceController extends Controller
         }
 
         try {
-            $data = $request->validate([
-                'client_id' => ['required', 'integer', $this->clientRule($companyId)],
-                'invoice_template_id' => ['required', 'integer', $this->templateRule($companyId)],
-
-                'title' => ['nullable', 'string', 'max:190'],
-                'reference' => ['nullable', 'string', 'max:190'],
-
-                'issue_date' => ['required', 'date'],
-                'due_date' => ['nullable', 'date', 'after_or_equal:issue_date'],
-
-                'currency_code' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')],
-
-                'has_delivery_note' => ['required', 'boolean'],
-
-                // ✅ NEW: pending/paid (default handled by UI, but validate anyway)
-                'status' => ['required', 'string', Rule::in(['pending', 'paid'])],
-
-                'is_recurring' => ['required', 'boolean'],
-                'recurrence_frequency' => ['nullable', 'string', Rule::in(['daily', 'weekly', 'monthly', 'yearly'])],
-                'recurrence_interval' => ['nullable', 'integer', 'min:1', 'max:365'],
-                'recurrence_start_date' => ['nullable', 'date'],
-                'recurrence_end_date' => ['nullable', 'date', 'after_or_equal:recurrence_start_date'],
-
-                'notes' => ['nullable', 'string'],
-                'terms' => ['nullable', 'string'],
-
-                // ✅ NEW: overall invoice discount
-                'invoice_discount' => ['nullable', 'numeric', 'min:0'],
-
-                // ✅ NEW: whole-invoice tax rate
-                'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
-
-                // ✅ NEW: email the finished invoice to the client
-                'send_to_client' => ['nullable', 'boolean'],
-
-                'items' => ['required', 'array', 'min:1'],
-                'items.*.description' => ['required', 'string', 'max:255'],
-                'items.*.unit' => ['nullable', 'string', 'max:50'],
-                'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-                'items.*.unit_price' => ['required', 'numeric', 'min:0'],
-                'items.*.discount' => ['nullable', 'numeric', 'min:0'],
-            ]);
+            $data = $request->validate(DocumentRules::invoice($companyId));
 
             // ✅ Ensure client belongs to active company
             $clientOk = Client::query()
@@ -530,102 +462,7 @@ class InvoiceController extends Controller
                 }
             }
 
-            // ✅ Recurring validation rules
-            if ((bool) $data['is_recurring']) {
-                if (empty($data['recurrence_frequency'])) {
-                    throw ValidationException::withMessages([
-                        'recurrence_frequency' => 'Select a recurrence frequency.',
-                    ]);
-                }
-
-                // If interval omitted, set default
-                if (empty($data['recurrence_interval'])) {
-                    $data['recurrence_interval'] = 1;
-                }
-
-                // next_run_at: later we’ll calculate properly (cron), for now anchor it
-                $data['next_run_at'] = $data['recurrence_start_date'] ?? $data['issue_date'];
-            } else {
-                $data['recurrence_frequency'] = null;
-                $data['recurrence_interval'] = null;
-                $data['recurrence_start_date'] = null;
-                $data['recurrence_end_date'] = null;
-                $data['next_run_at'] = null;
-            }
-
-            // ✅ Compute totals (whole-invoice discount and tax rate)
-            $totals = $this->computeTotals(
-                $data['items'],
-                (float) ($data['invoice_discount'] ?? 0),
-                (float) ($data['tax_percent'] ?? 0),
-            );
-
-            $items = $totals['items'];
-
-            $invoice = DB::transaction(function () use (
-                $companyId,
-                $user,
-                $data,
-                $items,
-                $totals
-            ) {
-                $invoice = Invoice::create([
-                    'company_id' => $companyId,
-                    'client_id' => (int) $data['client_id'],
-                    'invoice_template_id' => $data['invoice_template_id'] ?? null,
-                    'created_by' => $user?->id,
-
-                    'number' => null, // next: INV numbering (per company)
-                    'reference' => $data['reference'] ?? null,
-                    'title' => $data['title'] ?? null,
-
-                    'issue_date' => $data['issue_date'],
-                    'due_date' => $data['due_date'] ?? null,
-
-                    'currency_code' => strtoupper($data['currency_code']),
-
-                    'subtotal' => $totals['subtotal'],
-
-                    // ✅ keep both so UI can show the breakdown
-                    'invoice_discount' => $totals['invoice_discount'],
-                    'discount_total' => $totals['discount_total'],
-
-                    'tax_percent' => $totals['tax_percent'],
-                    'tax_total' => $totals['tax_total'],
-                    'total' => $totals['total'],
-
-                    // ✅ NEW: pending/paid
-                    'status' => $data['status'],
-
-                    'has_delivery_note' => (bool) $data['has_delivery_note'],
-
-                    'is_recurring' => (bool) $data['is_recurring'],
-                    'recurrence_frequency' => $data['recurrence_frequency'] ?? null,
-                    'recurrence_interval' => $data['recurrence_interval'] ?? null,
-                    'recurrence_start_date' => $data['recurrence_start_date'] ?? null,
-                    'recurrence_end_date' => $data['recurrence_end_date'] ?? null,
-                    'next_run_at' => $data['next_run_at'] ?? null,
-
-                    'notes' => $data['notes'] ?? null,
-                    'terms' => $data['terms'] ?? null,
-                ]);
-
-                foreach ($items as $row) {
-                    InvoiceItem::create([
-                        'invoice_id' => $invoice->id,
-                        'description' => $row['description'],
-                        'unit' => $row['unit'] ?? null,
-                        'quantity' => $row['quantity'],
-                        'unit_price' => $row['unit_price'],
-                        'discount' => $row['discount'] ?? 0,
-                        'tax' => $row['tax'] ?? 0,
-                        'line_total' => $row['line_total'],
-                        'sort_order' => $row['sort_order'] ?? 0,
-                    ]);
-                }
-
-                return $invoice;
-            });
+            $invoice = $this->creator->handle($companyId, $user, $data);
 
             $delivery = $this->deliverToClient($invoice, (bool) ($data['send_to_client'] ?? false));
 

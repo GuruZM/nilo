@@ -3,13 +3,15 @@
 namespace App\Models;
 
 use App\Models\Concerns\FreezesExchangeRate;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Quotation extends Model
 {
-    use FreezesExchangeRate;
+    /** @use HasFactory<\Database\Factories\QuotationFactory> */
+    use FreezesExchangeRate, HasFactory;
 
     protected $fillable = [
         'company_id',

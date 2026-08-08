@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Models\Client;
 use App\Models\Company;
 use App\Models\Invoice;
 use App\Models\InvoicePayment;
@@ -40,8 +41,26 @@ class InvoicePaymentFactory extends Factory
         return $this->state(fn () => [
             'company_id' => $invoice->company_id,
             'invoice_id' => $invoice->id,
+            'client_id' => null,
             'currency_code' => $invoice->currency_code,
             'amount' => $amount ?? (float) $invoice->total,
+        ]);
+    }
+
+    /**
+     * A receipt with no invoice behind it: money received where none was raised.
+     *
+     * The client is required rather than optional, because with no invoice there
+     * is nothing else to address the printed sheet to.
+     */
+    public function standalone(?Client $client = null): static
+    {
+        return $this->state(fn () => [
+            'invoice_id' => null,
+            'client_id' => $client?->id ?? Client::factory(),
+            'company_id' => $client?->company_id ?? Company::factory(),
+            'balance_after' => null,
+            'description' => fake()->sentence(4),
         ]);
     }
 }

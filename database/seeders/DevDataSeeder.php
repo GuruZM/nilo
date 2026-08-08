@@ -14,6 +14,7 @@ use App\Models\PurchaseOrder;
 use App\Models\Quotation;
 use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Documents\IssueReceipt;
 use App\Services\InvoiceSettlement;
 use App\Services\TemplateProvisioner;
 use Illuminate\Database\Seeder;
@@ -58,6 +59,7 @@ class DevDataSeeder extends Seeder
 
         $this->quotationFor($company, $riverside);
         $this->purchaseOrderFor($company, $supplier);
+        $this->standaloneReceiptFor($company, $riverside);
 
         $this->command?->info("Seeded dev data into company [{$company->name}] for {$user->email}.");
     }
@@ -227,6 +229,24 @@ class DevDataSeeder extends Seeder
 
         $settlement->sync($invoice->fresh());
         $payment->update(['balance_after' => $settlement->balanceDue($invoice->fresh())]);
+    }
+
+    /**
+     * A deposit taken before any invoice was raised, so the register shows both
+     * kinds of receipt side by side. Seeded last on purpose: its number falls
+     * after the invoice-backed ones, which is the shared sequence working.
+     */
+    private function standaloneReceiptFor(Company $company, Client $client): void
+    {
+        app(IssueReceipt::class)->handle((int) $company->id, null, [
+            'client_id' => $client->id,
+            'amount' => 7500,
+            'currency_code' => $company->currency_code,
+            'paid_on' => now()->subDays(5)->toDateString(),
+            'method' => 'cash',
+            'reference' => null,
+            'description' => 'Deposit on borehole installation',
+        ]);
     }
 
     private function settledInvoice(Company $company, Client $client): void

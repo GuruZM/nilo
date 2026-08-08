@@ -7,7 +7,7 @@ use App\Models\Company;
 use App\Models\Currency;
 use App\Models\Invoice;
 use App\Services\CurrencyRollup;
-use Illuminate\Database\Eloquent\Builder;
+use App\Services\OutstandingBalance;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -15,40 +15,7 @@ use Inertia\Inertia;
 
 class DashboardController extends Controller
 {
-    /**
-     * Money still owed on a set of invoices, in the rollup's display currency.
-     *
-     * An invoice's total is what it was billed for, not what is left on it, so
-     * the ledger comes off each invoice before anything is added up. The
-     * subtraction happens in the invoice's own currency and the *remainder* is
-     * converted — a payment is received in the currency the invoice was raised
-     * in, so converting the total and deducting afterwards would be arithmetic
-     * across two currencies.
-     *
-     * `withSum` keeps the ledger a correlated subquery rather than one query
-     * per invoice.
-     */
-    private function outstandingBalance(Builder $query, CurrencyRollup $rollup): float
-    {
-        return (float) $query
-            ->withSum('payments as paid_sum', 'amount')
-            ->get()
-            ->sum(fn (Invoice $invoice) => $rollup->convert(
-                $this->unpaidRemainder($invoice),
-                (string) $invoice->currency_code,
-            ));
-    }
-
-    /**
-     * What is left on one invoice, in its own currency. Requires `paid_sum`.
-     *
-     * Floored at zero: an overpayment settles the invoice, it does not turn
-     * into negative money owed elsewhere on the dashboard.
-     */
-    private function unpaidRemainder(Invoice $invoice): float
-    {
-        return max(0, (float) $invoice->total - (float) ($invoice->paid_sum ?? 0));
-    }
+    public function __construct(private OutstandingBalance $balances) {}
 
     public function index(Request $request)
     {
@@ -112,14 +79,14 @@ class DashboardController extends Controller
         $paidRevenue = $rollup->sum((clone $base)->paid());
 
         /** Every outstanding figure is net of what has already been settled. */
-        $pendingRevenue = $this->outstandingBalance((clone $base)->outstanding(), $rollup);
+        $pendingRevenue = $this->balances->forQuery((clone $base)->outstanding(), $rollup);
 
-        $overdueRevenue = $this->outstandingBalance((clone $base)
+        $overdueRevenue = $this->balances->forQuery((clone $base)
             ->outstanding()
             ->whereNotNull('due_date')
             ->whereDate('due_date', '<', $today), $rollup);
 
-        $dueIn7Revenue = $this->outstandingBalance((clone $base)
+        $dueIn7Revenue = $this->balances->forQuery((clone $base)
             ->outstanding()
             ->whereNotNull('due_date')
             ->whereBetween(DB::raw('DATE(due_date)'), [$today->toDateString(), $in7->toDateString()]), $rollup);
@@ -169,7 +136,7 @@ class DashboardController extends Controller
             } elseif ($inv->isOutstanding()) {
                 /** The bar tracks money owed, so part payments come off it. */
                 $pendingByMonth[$ym] = ($pendingByMonth[$ym] ?? 0) + $rollup->convert(
-                    $this->unpaidRemainder($inv),
+                    $this->balances->unpaidRemainder($inv),
                     (string) $inv->currency_code,
                     $inv->exchange_rate_to_base,
                 );
@@ -191,7 +158,7 @@ class DashboardController extends Controller
             $ym = Carbon::parse($inv->due_date)->format('Y-m');
 
             $overdueByMonth[$ym] = ($overdueByMonth[$ym] ?? 0) + $rollup->convert(
-                $this->unpaidRemainder($inv),
+                $this->balances->unpaidRemainder($inv),
                 (string) $inv->currency_code,
                 $inv->exchange_rate_to_base,
             );
@@ -297,7 +264,7 @@ class DashboardController extends Controller
             $clientId = (int) $inv->client_id;
 
             $convertedByClient[$clientId] = ($convertedByClient[$clientId] ?? 0.0) + $rollup->convert(
-                $this->unpaidRemainder($inv),
+                $this->balances->unpaidRemainder($inv),
                 (string) $inv->currency_code,
             );
         }

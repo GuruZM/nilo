@@ -72,7 +72,7 @@ it('celebrates without pulling in a confetti dependency', function () {
 
 it('gives the slow actions the brand loader rather than a bare label', function () {
     $create = file_get_contents(__DIR__.'/../../resources/js/pages/Invoices/Create.tsx');
-    $dialog = file_get_contents(__DIR__.'/../../resources/js/components/edit-client-dialog.tsx');
+    $dialog = file_get_contents(__DIR__.'/../../resources/js/components/contact-dialog.tsx');
 
     expect($create)
         ->toContain("import NiloSpinner from '@/components/nilo-spinner'")

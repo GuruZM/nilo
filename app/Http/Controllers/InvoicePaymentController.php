@@ -2,16 +2,14 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\DocumentType;
 use App\Models\Invoice;
 use App\Models\InvoicePayment;
 use App\Services\DocumentRenderer;
+use App\Services\Documents\RecordInvoicePayment;
 use App\Services\InvoiceSettlement;
-use App\Support\DocumentNumber;
+use App\Support\DocumentRules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -27,6 +25,7 @@ class InvoicePaymentController extends Controller
     public function __construct(
         private InvoiceSettlement $settlement,
         private DocumentRenderer $documents,
+        private RecordInvoicePayment $recorder,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -88,62 +87,12 @@ class InvoicePaymentController extends Controller
 
         $balance = $this->settlement->balanceDue($invoice);
 
-        $data = $request->validate([
-            /**
-             * `numeric` makes `max` a value comparison rather than a length
-             * one, so this caps the payment at what is still owed. On a fully
-             * settled invoice the cap is `max:0` and every payment is refused,
-             * which is the correct outcome — the message below says so in
-             * words rather than quoting a zero.
-             */
-            'amount' => ['required', 'numeric', 'min:0.01', 'max:'.$balance],
-            'paid_on' => ['required', 'date'],
-            'method' => ['required', Rule::in(InvoicePayment::METHODS)],
-            'reference' => ['nullable', 'string', 'max:190'],
-        ], [
-            'amount.max' => $balance > 0
-                ? 'That is more than the '.number_format($balance, 2, '.', ',').' '
-                    .$invoice->currency_code.' still outstanding on this invoice.'
-                : 'Invoice '.$invoice->number.' is already settled in full.',
-        ]);
+        $data = $request->validate(
+            DocumentRules::invoicePayment($balance),
+            DocumentRules::invoicePaymentMessages($invoice, $balance),
+        );
 
-        DB::transaction(function () use ($companyId, $request, $invoice, $data): void {
-            $payment = InvoicePayment::query()->create([
-                'company_id' => $companyId,
-                'invoice_id' => $invoice->id,
-                'recorded_by' => $request->user()?->id,
-                'receipt_number' => DocumentNumber::nextFor(
-                    InvoicePayment::class,
-                    $companyId,
-                    DocumentType::Receipt,
-                    'receipt_number',
-                ),
-                'amount' => (float) $data['amount'],
-
-                /** Never the request's — a receipt is denominated by its invoice. */
-                'currency_code' => $invoice->currency_code,
-
-                'paid_on' => $data['paid_on'],
-                'method' => $data['method'],
-                'reference' => $data['reference'] ?? null,
-            ]);
-
-            /**
-             * Order matters. The payment row must exist before either of the
-             * next two steps, because both read the ledger: `sync` to derive
-             * the status, `balanceDue` to get the figure this receipt will
-             * carry for ever. Stamping is last and writes only `balance_after`,
-             * a column neither of them reads, so it cannot disturb what they
-             * just computed and needs no second sync.
-             */
-            $invoice = $invoice->fresh();
-
-            $this->settlement->sync($invoice);
-
-            $payment->update([
-                'balance_after' => $this->settlement->balanceDue($invoice),
-            ]);
-        });
+        $this->recorder->handle($companyId, $request->user(), $invoice, $data);
 
         return back()->with('success', 'Payment recorded.');
     }
@@ -152,11 +101,7 @@ class InvoicePaymentController extends Controller
     {
         $this->guardPayment($request, $invoice, $payment);
 
-        DB::transaction(function () use ($invoice, $payment): void {
-            $payment->delete();
-
-            $this->settlement->sync($invoice->fresh());
-        });
+        $this->recorder->remove($invoice, $payment);
 
         return back()->with('success', 'Payment removed.');
     }

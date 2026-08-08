@@ -2,17 +2,15 @@
 
 namespace App\Http\Controllers;
 
-use App\Enums\DocumentType;
 use App\Models\Company;
 use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use App\Services\DocumentRenderer;
+use App\Services\Documents\CreatePurchaseOrder;
 use App\Services\SubscriptionLimitService;
-use App\Services\TemplateProvisioner;
-use App\Support\DocumentNumber;
+use App\Support\DocumentRules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
 use Illuminate\Validation\ValidationException;
@@ -33,7 +31,7 @@ class PurchaseOrderController extends Controller
 {
     public function __construct(
         private DocumentRenderer $documents,
-        private TemplateProvisioner $templates,
+        private CreatePurchaseOrder $creator,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -81,55 +79,6 @@ class PurchaseOrderController extends Controller
     private function supplierRule(int $companyId): Exists
     {
         return Rule::exists('suppliers', 'id')->where('company_id', $companyId);
-    }
-
-    /**
-     * Totals for a purchase order.
-     *
-     * Identical arithmetic to {@see QuotationController::computeTotals()} and
-     * {@see CreditNoteController::computeTotals()} — prices are tax-inclusive,
-     * discounts come off the gross, tax is carved back out by subtraction. All
-     * three must not drift apart.
-     *
-     * @param  array<int, array<string, mixed>>  $items
-     * @return array{items: array<int, array<string, mixed>>, subtotal: float, purchase_order_discount: float, discount_total: float, tax_percent: float, tax_total: float, total: float}
-     */
-    private function computeTotals(array $items, float $orderDiscount, float $taxPercent): array
-    {
-        $itemsGross = 0.0;
-        $lineDiscountTotal = 0.0;
-
-        foreach ($items as $i => $row) {
-            $qty = (float) $row['quantity'];
-            $price = (float) $row['unit_price'];
-            $discount = (float) ($row['discount'] ?? 0);
-
-            $lineBase = $qty * $price;
-
-            $items[$i]['discount'] = $discount;
-            $items[$i]['tax'] = 0;
-            $items[$i]['line_total'] = max(0, $lineBase - $discount);
-            $items[$i]['sort_order'] = $i;
-
-            $itemsGross += $lineBase;
-            $lineDiscountTotal += $discount;
-        }
-
-        $discountTotal = $lineDiscountTotal + $orderDiscount;
-
-        $total = round(max(0, $itemsGross - $discountTotal), 2);
-        $subtotal = round($total / (1 + ($taxPercent / 100)), 2);
-        $taxTotal = round($total - $subtotal, 2);
-
-        return [
-            'items' => $items,
-            'subtotal' => $subtotal,
-            'purchase_order_discount' => $orderDiscount,
-            'discount_total' => $discountTotal,
-            'tax_percent' => $taxPercent,
-            'tax_total' => $taxTotal,
-            'total' => $total,
-        ];
     }
 
     public function index(Request $request): Response
@@ -196,81 +145,9 @@ class PurchaseOrderController extends Controller
             return back()->with('limit_notice', $limiter->limitNotice('purchase orders'));
         }
 
-        $data = $request->validate([
-            'supplier_id' => ['required', 'integer', $this->supplierRule($companyId)],
-            'title' => ['nullable', 'string', 'max:190'],
-            'reference' => ['nullable', 'string', 'max:190'],
-            'issue_date' => ['required', 'date'],
+        $data = $request->validate(DocumentRules::purchaseOrder($companyId));
 
-            /** Same-day delivery is ordinary, so `after_or_equal` rather than `after`. */
-            'expected_date' => ['nullable', 'date', 'after_or_equal:issue_date'],
-
-            /**
-             * A purchase order is denominated in whatever the supplier invoices
-             * in, so the code comes from the form — but only one the currencies
-             * table knows, normalised to upper case before it is stored.
-             */
-            'currency_code' => ['required', 'string', 'size:3', Rule::exists('currencies', 'code')],
-
-            'status' => ['required', Rule::in(PurchaseOrder::STATUSES)],
-            'delivery_address' => ['nullable', 'string', 'max:255'],
-            'notes' => ['nullable', 'string'],
-            'terms' => ['nullable', 'string'],
-            'purchase_order_discount' => ['nullable', 'numeric', 'min:0'],
-            'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
-
-            'items' => ['required', 'array', 'min:1'],
-            'items.*.description' => ['required', 'string', 'max:255'],
-            'items.*.unit' => ['nullable', 'string', 'max:50'],
-            'items.*.quantity' => ['required', 'numeric', 'min:0.01'],
-            'items.*.unit_price' => ['required', 'numeric', 'min:0'],
-            'items.*.discount' => ['nullable', 'numeric', 'min:0'],
-        ]);
-
-        $totals = $this->computeTotals(
-            $data['items'],
-            (float) ($data['purchase_order_discount'] ?? 0),
-            (float) ($data['tax_percent'] ?? 0),
-        );
-
-        $order = DB::transaction(function () use ($companyId, $user, $data, $totals): PurchaseOrder {
-            $order = PurchaseOrder::query()->create([
-                'company_id' => $companyId,
-                'supplier_id' => (int) $data['supplier_id'],
-
-                /**
-                 * Provisioning runs inside the transaction on purpose: it may
-                 * create the company's first purchase order template, and a
-                 * rolled back order must not leave that row behind.
-                 */
-                'purchase_order_template_id' => $this->templates
-                    ->forCompany($companyId, DocumentType::PurchaseOrder)->id,
-
-                'created_by' => $user?->id,
-                'number' => DocumentNumber::nextFor(PurchaseOrder::class, $companyId, DocumentType::PurchaseOrder),
-                'reference' => $data['reference'] ?? null,
-                'title' => $data['title'] ?? null,
-                'issue_date' => $data['issue_date'],
-                'expected_date' => $data['expected_date'] ?? null,
-                'currency_code' => strtoupper((string) $data['currency_code']),
-                'delivery_address' => $data['delivery_address'] ?? null,
-
-                'subtotal' => $totals['subtotal'],
-                'purchase_order_discount' => $totals['purchase_order_discount'],
-                'discount_total' => $totals['discount_total'],
-                'tax_percent' => $totals['tax_percent'],
-                'tax_total' => $totals['tax_total'],
-                'total' => $totals['total'],
-
-                'status' => $data['status'],
-                'notes' => $data['notes'] ?? null,
-                'terms' => $data['terms'] ?? null,
-            ]);
-
-            $order->items()->createMany($totals['items']);
-
-            return $order;
-        });
+        $order = $this->creator->handle($companyId, $user, $data);
 
         return redirect()
             ->route('purchase-orders.show', $order)
