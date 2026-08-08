@@ -23,9 +23,11 @@ class StorePaymentRequest extends FormRequest
     {
         return [
             'plan_id' => 'required|exists:plans,id',
-            'payment_method' => 'required|in:airtel_money,bank_transfer',
-            'phone_number' => 'required_if:payment_method,airtel_money|nullable|string',
-            'payment_reference' => 'nullable|string',
+            'payment_method' => 'required|in:mobile_money,bank_transfer',
+            // Both routes are the customer sending money to one of Nilo's own
+            // accounts, so the reference is the only thing that lets an admin
+            // match what arrived to who is waiting on a plan.
+            'payment_reference' => 'required|string|max:255',
             'pop_file' => 'required_if:payment_method,bank_transfer|nullable|file|mimes:jpg,jpeg,png,pdf|max:5120',
             'coupon_code' => 'nullable|string|max:64',
         ];
@@ -37,6 +39,7 @@ class StorePaymentRequest extends FormRequest
     public function messages(): array
     {
         return [
+            'payment_reference.required' => 'Enter the transaction ID or reference from your payment confirmation.',
             'pop_file.required_if' => 'Attach a screenshot or PDF of the transfer so we can match it.',
         ];
     }

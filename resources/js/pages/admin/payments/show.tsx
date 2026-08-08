@@ -9,15 +9,19 @@ import {
     pillButtonClass,
 } from '@/components/dashboard/primitives';
 import AppSidebarLayout from '@/layouts/app/app-sidebar-layout';
+import { formatMoney } from '@/lib/money';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
 import {
     ArrowLeft,
     CheckCircle2,
+    CreditCard,
     FileText,
     Receipt,
+    RefreshCw,
     XCircle,
 } from 'lucide-react';
+import { useState } from 'react';
 
 interface PaymentShowProps {
     payment: {
@@ -27,21 +31,42 @@ interface PaymentShowProps {
         discount_amount: string;
         coupon_code: string | null;
         currency_code: string;
+        charged_amount: string | null;
+        charged_currency_code: string | null;
+        charged_exchange_rate: number | null;
+        charged_rate_fetched_at: string | null;
         payment_method: string;
         payment_reference: string | null;
+        company_ref: string | null;
+        dpo_transaction_token: string | null;
         phone_number: string | null;
         pop_file_path: string | null;
         status: string;
+        gateway_status: string | null;
+        gateway_response: Record<string, unknown> | null;
         admin_notes: string | null;
         created_at: string;
         confirmed_at: string | null;
+        paid_at: string | null;
+        verified_at: string | null;
         user: { id: number; name: string; email: string };
         plan: { name: string };
         confirmed_by: { name: string } | null;
     };
 }
 
+const METHOD_LABELS: Record<string, string> = {
+    mobile_money: 'Mobile money',
+    /** Retired in favour of mobile_money; kept so old payments still read. */
+    airtel_money: 'Airtel Money',
+    bank_transfer: 'Bank transfer',
+    coupon: 'Coupon',
+    dpo: 'Card / mobile money',
+};
+
 export default function PaymentShow({ payment }: PaymentShowProps) {
+    const isGateway = payment.payment_method === 'dpo';
+    const [showRaw, setShowRaw] = useState(false);
     const breadcrumbs: BreadcrumbItem[] = [
         { title: 'Admin', href: '/admin' },
         { title: 'Payments', href: '/admin/payments' },
@@ -61,6 +86,10 @@ export default function PaymentShow({ payment }: PaymentShowProps) {
         if (confirm('Reject this payment?')) {
             router.post(`/admin/payments/${payment.id}/reject`);
         }
+    };
+
+    const handleVerify = () => {
+        router.post(`/admin/payments/${payment.id}/verify`);
     };
 
     const isPdf = payment.pop_file_path?.endsWith('.pdf') ?? false;
@@ -119,25 +148,31 @@ export default function PaymentShow({ payment }: PaymentShowProps) {
                                 <>
                                     <TotalRow
                                         label="List price"
-                                        value={`K${parseFloat(payment.original_amount ?? payment.amount).toLocaleString()}`}
+                                        value={formatMoney(
+                                            payment.original_amount ??
+                                                payment.amount,
+                                            payment.currency_code,
+                                        )}
                                     />
                                     <TotalRow
                                         label={`Coupon ${payment.coupon_code ?? ''}`.trim()}
-                                        value={`− K${discount.toLocaleString()}`}
+                                        value={`− ${formatMoney(discount, payment.currency_code)}`}
                                     />
                                 </>
                             ) : null}
                             <TotalRow
                                 label={wasDiscounted ? 'Amount due' : 'Amount'}
-                                value={`K${parseFloat(payment.amount).toLocaleString()}`}
+                                value={formatMoney(
+                                    payment.amount,
+                                    payment.currency_code,
+                                )}
                                 strong
                             />
                             <TotalRow
                                 label="Method"
                                 value={
-                                    payment.payment_method === 'airtel_money'
-                                        ? 'Airtel Money'
-                                        : 'Bank Transfer'
+                                    METHOD_LABELS[payment.payment_method] ??
+                                    payment.payment_method
                                 }
                             />
                             {payment.phone_number ? (
@@ -180,7 +215,23 @@ export default function PaymentShow({ payment }: PaymentShowProps) {
                             </p>
                         ) : null}
 
-                        {payment.status === 'pending' ? (
+                        {isGateway ? (
+                            payment.status === 'pending' ? (
+                                <div className="mt-4 flex flex-wrap items-center gap-2">
+                                    <PillButton
+                                        variant="soft"
+                                        onClick={handleVerify}
+                                    >
+                                        <RefreshCw className="h-4 w-4" />
+                                        Verify with DPO
+                                    </PillButton>
+                                    <span className="text-xs text-muted-foreground">
+                                        DPO settles this payment — it cannot be
+                                        confirmed by hand.
+                                    </span>
+                                </div>
+                            ) : null
+                        ) : payment.status === 'pending' ? (
                             <div className="mt-4 flex flex-wrap items-center gap-2">
                                 <PillButton onClick={handleConfirm}>
                                     <CheckCircle2 className="h-4 w-4" />
@@ -198,42 +249,128 @@ export default function PaymentShow({ payment }: PaymentShowProps) {
                         ) : null}
                     </Panel>
 
-                    <Panel className="lg:col-span-7">
-                        <PanelHeader
-                            icon={FileText}
-                            title="Proof of payment"
-                            subtitle="Uploaded by the subscriber at submission."
-                        />
+                    {isGateway ? (
+                        <Panel className="lg:col-span-7">
+                            <PanelHeader
+                                icon={CreditCard}
+                                title="Gateway"
+                                subtitle="What DPO was asked for, and what it said."
+                            />
 
-                        {!payment.pop_file_path ? (
-                            <p className="py-8 text-center text-sm text-muted-foreground">
-                                No proof of payment was uploaded.
-                            </p>
-                        ) : isPdf ? (
-                            <a
-                                href={`/storage/${payment.pop_file_path}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={pillButtonClass('soft', 'md')}
-                            >
-                                <FileText className="h-4 w-4" />
-                                Open PDF
-                            </a>
-                        ) : (
-                            <a
-                                href={`/storage/${payment.pop_file_path}`}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="block overflow-hidden rounded-2xl bg-muted/50 dark:bg-white/5"
-                            >
-                                <img
-                                    src={`/storage/${payment.pop_file_path}`}
-                                    alt="Proof of payment"
-                                    className="h-auto w-full max-w-full"
+                            <SoftTile className="flex flex-col gap-2">
+                                <TotalRow
+                                    label="Gateway status"
+                                    value={payment.gateway_status ?? '—'}
                                 />
-                            </a>
-                        )}
-                    </Panel>
+                                <TotalRow
+                                    label="Charged"
+                                    value={formatMoney(
+                                        payment.charged_amount ??
+                                            payment.amount,
+                                        payment.charged_currency_code ??
+                                            payment.currency_code,
+                                    )}
+                                    strong
+                                />
+                                {payment.charged_exchange_rate ? (
+                                    <TotalRow
+                                        label="Rate frozen at"
+                                        value={`${payment.charged_exchange_rate} ${payment.currency_code}/USD${
+                                            payment.charged_rate_fetched_at
+                                                ? ` · ${new Date(payment.charged_rate_fetched_at).toLocaleDateString()}`
+                                                : ''
+                                        }`}
+                                    />
+                                ) : null}
+                                <TotalRow
+                                    label="Our reference"
+                                    value={payment.company_ref ?? '—'}
+                                />
+                                <TotalRow
+                                    label="DPO token"
+                                    value={
+                                        payment.dpo_transaction_token
+                                            ? `${payment.dpo_transaction_token.slice(0, 12)}…`
+                                            : '—'
+                                    }
+                                />
+                                {payment.verified_at ? (
+                                    <TotalRow
+                                        label="Last verified"
+                                        value={new Date(
+                                            payment.verified_at,
+                                        ).toLocaleString()}
+                                    />
+                                ) : null}
+                                {payment.paid_at ? (
+                                    <TotalRow
+                                        label="Paid"
+                                        value={new Date(
+                                            payment.paid_at,
+                                        ).toLocaleString()}
+                                    />
+                                ) : null}
+                            </SoftTile>
+
+                            {payment.gateway_response ? (
+                                <div className="mt-3">
+                                    <PillButton
+                                        variant="ghost"
+                                        size="sm"
+                                        onClick={() => setShowRaw((on) => !on)}
+                                    >
+                                        {showRaw ? 'Hide' : 'Show'} raw response
+                                    </PillButton>
+                                    {showRaw ? (
+                                        <pre className="mt-2 max-h-72 overflow-auto rounded-2xl bg-muted/50 p-3 text-xs dark:bg-white/5">
+                                            {JSON.stringify(
+                                                payment.gateway_response,
+                                                null,
+                                                2,
+                                            )}
+                                        </pre>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                        </Panel>
+                    ) : (
+                        <Panel className="lg:col-span-7">
+                            <PanelHeader
+                                icon={FileText}
+                                title="Proof of payment"
+                                subtitle="Uploaded by the subscriber at submission."
+                            />
+
+                            {!payment.pop_file_path ? (
+                                <p className="py-8 text-center text-sm text-muted-foreground">
+                                    No proof of payment was uploaded.
+                                </p>
+                            ) : isPdf ? (
+                                <a
+                                    href={`/storage/${payment.pop_file_path}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className={pillButtonClass('soft', 'md')}
+                                >
+                                    <FileText className="h-4 w-4" />
+                                    Open PDF
+                                </a>
+                            ) : (
+                                <a
+                                    href={`/storage/${payment.pop_file_path}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="block overflow-hidden rounded-2xl bg-muted/50 dark:bg-white/5"
+                                >
+                                    <img
+                                        src={`/storage/${payment.pop_file_path}`}
+                                        alt="Proof of payment"
+                                        className="h-auto w-full max-w-full"
+                                    />
+                                </a>
+                            )}
+                        </Panel>
+                    )}
                 </div>
             </div>
         </AppSidebarLayout>

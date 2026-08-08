@@ -12,20 +12,31 @@ import {
     type PaginationLink,
 } from '@/components/dashboard/primitives';
 import AppSidebarLayout from '@/layouts/app/app-sidebar-layout';
+import { formatMoney } from '@/lib/money';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem } from '@/types';
 import { Head, Link, router } from '@inertiajs/react';
-import { CheckCircle2, CreditCard, Paperclip, XCircle } from 'lucide-react';
+import {
+    CheckCircle2,
+    CreditCard,
+    Paperclip,
+    RefreshCw,
+    XCircle,
+} from 'lucide-react';
 
 interface PaymentItem {
     id: number;
     amount: string;
     currency_code: string;
+    charged_amount: string | null;
+    charged_currency_code: string | null;
     payment_method: string;
     payment_reference: string | null;
+    company_ref: string | null;
     phone_number: string | null;
     pop_file_path: string | null;
     status: string;
+    gateway_status: string | null;
     created_at: string;
     user: { id: number; name: string; email: string };
     plan: { name: string };
@@ -38,7 +49,7 @@ interface PaymentsIndexProps {
         last_page: number;
         links: PaginationLink[];
     };
-    filters: { status: string };
+    filters: { status: string; method: string };
 }
 
 const breadcrumbs: BreadcrumbItem[] = [
@@ -47,14 +58,34 @@ const breadcrumbs: BreadcrumbItem[] = [
 ];
 
 const STATUS_TABS = ['pending', 'confirmed', 'rejected', 'all'] as const;
+const METHOD_TABS = ['all', 'dpo', 'manual'] as const;
 
-const methodLabel = (method: string): string =>
-    method === 'airtel_money' ? 'Airtel Money' : 'Bank Transfer';
+const METHOD_LABELS: Record<string, string> = {
+    mobile_money: 'Mobile money',
+    /** Retired in favour of mobile_money; kept so old payments still read. */
+    airtel_money: 'Airtel Money',
+    bank_transfer: 'Bank transfer',
+    coupon: 'Coupon',
+    dpo: 'Card / mobile money',
+};
+
+const methodLabel = (method: string): string => METHOD_LABELS[method] ?? method;
 
 export default function PaymentsIndex({
     payments,
     filters,
 }: PaymentsIndexProps) {
+    const filterBy = (next: Partial<PaymentsIndexProps['filters']>) =>
+        router.get(
+            '/admin/payments',
+            { ...filters, ...next },
+            { preserveState: true },
+        );
+
+    const handleVerify = (paymentId: number) => {
+        router.post(`/admin/payments/${paymentId}/verify`);
+    };
+
     const handleConfirm = (paymentId: number) => {
         if (confirm('Confirm this payment and activate the subscription?')) {
             router.post(`/admin/payments/${paymentId}/confirm`);
@@ -79,20 +110,29 @@ export default function PaymentsIndex({
                         subtitle="Confirming a payment activates the subscriber's plan straight away."
                     />
 
-                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                    <div className="mb-2 flex flex-wrap items-center gap-2">
                         {STATUS_TABS.map((tab) => (
                             <Chip
                                 key={tab}
                                 active={filters.status === tab}
-                                onClick={() =>
-                                    router.get(
-                                        '/admin/payments',
-                                        { status: tab },
-                                        { preserveState: true },
-                                    )
-                                }
+                                onClick={() => filterBy({ status: tab })}
                             >
                                 {tab}
+                            </Chip>
+                        ))}
+                    </div>
+
+                    <div className="mb-4 flex flex-wrap items-center gap-2">
+                        <span className="text-xs text-muted-foreground">
+                            Method
+                        </span>
+                        {METHOD_TABS.map((tab) => (
+                            <Chip
+                                key={tab}
+                                active={(filters.method ?? 'all') === tab}
+                                onClick={() => filterBy({ method: tab })}
+                            >
+                                {tab === 'dpo' ? 'gateway' : tab}
                             </Chip>
                         ))}
                     </div>
@@ -170,10 +210,21 @@ export default function PaymentsIndex({
                                                     'font-semibold tabular-nums',
                                                 )}
                                             >
-                                                K
-                                                {parseFloat(
+                                                {formatMoney(
                                                     payment.amount,
-                                                ).toLocaleString()}
+                                                    payment.currency_code,
+                                                )}
+                                                {payment.charged_currency_code &&
+                                                payment.charged_currency_code !==
+                                                    payment.currency_code ? (
+                                                    <div className="mt-0.5 text-xs font-normal text-muted-foreground">
+                                                        charged{' '}
+                                                        {formatMoney(
+                                                            payment.charged_amount,
+                                                            payment.charged_currency_code,
+                                                        )}
+                                                    </div>
+                                                ) : null}
                                             </td>
 
                                             <td className={tableCellClass}>
@@ -220,8 +271,44 @@ export default function PaymentsIndex({
                                                     'rounded-r-2xl text-right',
                                                 )}
                                             >
-                                                {payment.status ===
-                                                'pending' ? (
+                                                {payment.payment_method ===
+                                                'dpo' ? (
+                                                    /* DPO settles its own payments — the only
+                                                       useful admin action is to re-ask it. */
+                                                    <div className="flex items-center justify-end gap-2">
+                                                        <StatusPill
+                                                            status={
+                                                                payment.gateway_status ??
+                                                                payment.status
+                                                            }
+                                                        />
+                                                        {payment.status ===
+                                                        'pending' ? (
+                                                            <PillButton
+                                                                variant="ghost"
+                                                                size="sm"
+                                                                onClick={() =>
+                                                                    handleVerify(
+                                                                        payment.id,
+                                                                    )
+                                                                }
+                                                            >
+                                                                <RefreshCw className="h-3.5 w-3.5" />
+                                                                Verify
+                                                            </PillButton>
+                                                        ) : null}
+                                                        <Link
+                                                            href={`/admin/payments/${payment.id}`}
+                                                            className={pillButtonClass(
+                                                                'ghost',
+                                                                'sm',
+                                                            )}
+                                                        >
+                                                            View
+                                                        </Link>
+                                                    </div>
+                                                ) : payment.status ===
+                                                  'pending' ? (
                                                     <div className="flex justify-end gap-2">
                                                         <PillButton
                                                             variant="soft"

@@ -9,6 +9,8 @@ use App\Models\Plan;
 use App\Models\Subscription;
 use App\Models\User;
 use App\Services\CouponService;
+use App\Services\Dpo\DpoCharge;
+use App\Services\SubscriptionActivator;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -17,18 +19,32 @@ use Inertia\Response;
 
 class PaymentController extends Controller
 {
-    public function __construct(private CouponService $coupons) {}
+    public function __construct(
+        private CouponService $coupons,
+        private SubscriptionActivator $activator,
+        private DpoCharge $charge,
+    ) {}
 
     public function create(Request $request, Plan $plan): Response
     {
         abort_unless($plan->is_public, 403, 'This plan cannot be purchased.');
+        abort_if($plan->isFreeTier(), 403, 'The Free plan does not require a payment.');
 
         $code = trim($request->string('coupon')->toString());
+        $quote = $this->coupons->quote($plan, $request->user(), $code);
+
+        $currencies = $this->charge->availableCurrencies($plan->currency_code);
+        $currency = strtoupper($request->string('currency')->toString());
+        $currency = in_array($currency, $currencies, true) ? $currency : $plan->currency_code;
 
         return Inertia::render('subscription/payment', [
             'plan' => $plan,
-            'quote' => $this->coupons->quote($plan, $request->user(), $code),
+            'quote' => $quote,
             'couponCode' => $code,
+            'dpoEnabled' => (bool) config('services.dpo.enabled'),
+            'currencies' => $currencies,
+            'currency' => $currency,
+            'charge' => $this->charge->resolve((float) $quote['total'], $plan->currency_code, $currency),
         ]);
     }
 
@@ -38,6 +54,7 @@ class PaymentController extends Controller
         $user = $request->user();
 
         abort_unless($plan->is_public, 403, 'This plan cannot be purchased.');
+        abort_if($plan->isFreeTier(), 403, 'The Free plan does not require a payment.');
 
         $coupon = $this->resolveCoupon($request, $plan, $user);
         $discount = $coupon?->discountFor($plan) ?? 0.0;
@@ -72,7 +89,6 @@ class PaymentController extends Controller
                 'currency_code' => $plan->currency_code,
                 'payment_method' => $request->payment_method,
                 'payment_reference' => $request->payment_reference,
-                'phone_number' => $request->phone_number,
                 'pop_file_path' => $popFilePath,
                 'status' => 'pending',
             ]);
@@ -122,11 +138,19 @@ class PaymentController extends Controller
     {
         $user = auth()->user();
         $latestPayment = $user->payments()->with('plan')->latest()->first();
-        $subscription = $user->subscription;
+
+        // The page is about that payment, so it reports the subscription that
+        // payment bought rather than whichever one is currently serving.
+        $subscription = $latestPayment?->subscription ?? $user->activeSubscription;
 
         return Inertia::render('subscription/payment-status', [
             'payment' => $latestPayment,
             'subscription' => $subscription?->load('plan'),
+            // Pulled out by hand rather than exposing gateway_response, which
+            // also carries card metadata the subscriber has no need to see.
+            'gatewayMessage' => $latestPayment?->isGateway()
+                ? ($latestPayment->gateway_response['ResultExplanation'] ?? null)
+                : null,
         ]);
     }
 
@@ -136,37 +160,7 @@ class PaymentController extends Controller
      */
     private function activateWithoutPayment(User $user, Plan $plan, Coupon $coupon, float $discount): RedirectResponse
     {
-        DB::transaction(function () use ($user, $plan, $coupon, $discount) {
-            $start = now();
-
-            $subscription = Subscription::create([
-                'user_id' => $user->id,
-                'plan_id' => $plan->id,
-                'status' => 'active',
-                'starts_at' => $start,
-                'ends_at' => $plan->periodEndFrom($start),
-                'payment_method' => 'coupon',
-                'payment_reference' => $coupon->code,
-            ]);
-
-            $payment = Payment::create([
-                'user_id' => $user->id,
-                'subscription_id' => $subscription->id,
-                'plan_id' => $plan->id,
-                'coupon_id' => $coupon->id,
-                'coupon_code' => $coupon->code,
-                'amount' => 0,
-                'original_amount' => $plan->price,
-                'discount_amount' => $discount,
-                'currency_code' => $plan->currency_code,
-                'payment_method' => 'coupon',
-                'payment_reference' => $coupon->code,
-                'status' => 'confirmed',
-                'confirmed_at' => $start,
-            ]);
-
-            $this->coupons->claim($coupon, $user, $plan, $payment);
-        });
+        $this->activator->activateFree($user, $plan, $coupon, $discount);
 
         return redirect()->route('dashboard')
             ->with('success', "Coupon {$coupon->code} applied — you are now on the {$plan->name} plan.");
