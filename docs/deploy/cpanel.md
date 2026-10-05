@@ -7,19 +7,23 @@ atomically swaps `current`. No Node or Composer needed on the server.
 ## Server layout
 
 ```
-~/nilo/
+~/nilo-app/                          # outside the web root
   releases/20261005120000-abc1234/   # last 5 kept
   shared/.env
   shared/storage/                    # symlinked into every release
-  current -> releases/<latest>       # domain document root = current/public
+  current -> releases/<latest>
+~/nilo -> nilo-app/current/public    # the subdomain's existing document root
 ```
+
+The `nilo` subdomain keeps its cPanel document root (`~/nilo`); that folder is
+replaced by a symlink, so nothing above `public/` is ever web-reachable.
 
 ## One-time setup
 
 **Fast path:** from the repo root on a machine that can already SSH in:
 
 ```
-SSH_HOST=… SSH_USER=… APP_URL=https://… [SSH_PORT=…] [DOCROOT=public_html] \
+SSH_HOST=… SSH_USER=… APP_URL=https://… [SSH_PORT=…] [DOCROOT_DIR=nilo] [APP_DIR=nilo-app] \
   bash deploy/bootstrap-from-mac.sh
 ```
 
@@ -34,16 +38,14 @@ It does steps 3–6 and 8 below (steps 8 only if `gh` is logged in). The manual 
 4. **Bootstrap** —
    ```
    scp -P <port> -r deploy <user>@<host>:~/nilo-setup
-   ssh -p <port> <user>@<host> 'bash ~/nilo-setup/server-setup.sh ~/nilo <php-bin>'
+   ssh -p <port> <user>@<host> 'bash ~/nilo-setup/server-setup.sh ~/nilo-app <php-bin>'
    ```
-   Then edit `~/nilo/shared/.env` (APP_URL, DB_*, MAIL_*, OAuth, DPO).
+   Then edit `~/nilo-app/shared/.env` (APP_URL, DB_*, MAIL_*, OAuth, DPO).
    The script also lists any missing PHP extensions.
-5. **Document root** —
-   - Addon/sub-domain: Domains › Manage › document root `nilo/current/public`.
-   - Primary domain (stuck on `public_html`):
-     `mv ~/public_html ~/public_html.bak && ln -s ~/nilo/current/public ~/public_html`
+5. **Document root** — keep the subdomain pointing at `~/nilo`, then:
+   `mv ~/nilo ~/nilo.bak && ln -s ~/nilo-app/current/public ~/nilo`
 6. **Cron** — cPanel › Cron Jobs, every minute:
-   `cd ~/nilo/current && <php-bin> artisan schedule:run >> /dev/null 2>&1`
+   `cd ~/nilo-app/current && <php-bin> artisan schedule:run >> /dev/null 2>&1`
    This runs exchange-rate sync, DPO reconcile and drains the mail queue.
 7. **SSL** — cPanel › SSL/TLS Status › Run AutoSSL.
 8. **GitHub** — repo › Settings › Environments › `production`:
@@ -54,7 +56,7 @@ It does steps 3–6 and 8 below (steps 8 only if `gh` is logged in). The manual 
    | secret   | `SSH_PORT`        | usually 22 (some hosts use 21098 etc.) |
    | secret   | `SSH_USER`        | cPanel username                        |
    | secret   | `SSH_PRIVATE_KEY` | contents of `nilo_deploy`              |
-   | variable | `DEPLOY_PATH`     | `/home/<user>/nilo`                    |
+   | variable | `DEPLOY_PATH`     | `/home/<user>/nilo-app`                    |
    | variable | `PHP_BIN`         | CLI binary from step 1                 |
    | variable | `PHP_VERSION`     | e.g. `8.3` (build PHP = server PHP)    |
    | variable | `APP_URL`         | `https://…` for the smoke test         |
@@ -63,13 +65,13 @@ It does steps 3–6 and 8 below (steps 8 only if `gh` is logged in). The manual 
 ## First deploy
 
 Actions › deploy › Run workflow. Then seed once over SSH:
-`cd ~/nilo/current && <php-bin> artisan db:seed --force` (currencies, roles,
+`cd ~/nilo-app/current && <php-bin> artisan db:seed --force` (currencies, roles,
 super admin — check which seeders are prod-safe first).
 
 ## Rollback
 
 ```
-cd ~/nilo && ls -1t releases
+cd ~/nilo-app && ls -1t releases
 ln -sfn releases/<previous> current.next && mv -Tf current.next current
 ```
 Migrations are not reversed — roll those back by hand if needed.

@@ -2,17 +2,24 @@
 # One-shot cPanel bootstrap, run from your Mac in the repo root.
 #
 #   SSH_HOST=server.host.com SSH_USER=cpuser APP_URL=https://nilo.example.com \
-#     [SSH_PORT=22] [DOCROOT=public_html|manual] bash deploy/bootstrap-from-mac.sh
+#     [SSH_PORT=22] [DOCROOT_DIR=nilo] [APP_DIR=nilo-app] bash deploy/bootstrap-from-mac.sh
+#
+# DOCROOT_DIR is the folder (relative to the cPanel home) the subdomain already
+# serves. The app itself lives in APP_DIR, outside the web root, and
+# DOCROOT_DIR becomes a symlink to APP_DIR/current/public — so .env, releases
+# and storage are never web-reachable and the subdomain config is untouched.
 #
 # Uses your existing SSH access (key or password) to: authorise a dedicated
-# deploy key, lay out ~/nilo, create the MySQL DB, fill shared/.env, add the
-# scheduler cron, optionally point public_html at the app, and (if the gh CLI
-# is logged in) load the GitHub `production` environment secrets/variables.
+# deploy key, lay out the app dir, create the MySQL DB, fill shared/.env, add
+# the scheduler cron, link the docroot, and (if the gh CLI is logged in) load
+# the GitHub `production` environment secrets/variables.
 set -euo pipefail
 
 : "${SSH_HOST:?set SSH_HOST}" "${SSH_USER:?set SSH_USER}" "${APP_URL:?set APP_URL}"
 SSH_PORT="${SSH_PORT:-22}"
-DOCROOT="${DOCROOT:-manual}"
+DOCROOT_DIR="${DOCROOT_DIR:-nilo}"
+APP_DIR="${APP_DIR:-nilo-app}"
+[ "$DOCROOT_DIR" != "$APP_DIR" ] || { echo "APP_DIR must differ from DOCROOT_DIR (it would expose .env)" >&2; exit 1; }
 REPO="${REPO:-GuruZM/nilo}"
 KEY="$HOME/.ssh/nilo_deploy"
 APP_URL="${APP_URL%/}"
@@ -31,7 +38,8 @@ PUB=$(cat "$KEY.pub")
 
 step "Inspect server"
 REMOTE_HOME=$("${SSH[@]}" 'echo $HOME')
-APP_ROOT="$REMOTE_HOME/nilo"
+APP_ROOT="$REMOTE_HOME/$APP_DIR"
+DOCROOT_PATH="$REMOTE_HOME/$DOCROOT_DIR"
 PHP_BIN=$("${SSH[@]}" 'for p in /opt/cpanel/ea-php84/root/usr/bin/php /opt/alt/php84/usr/bin/php /opt/cpanel/ea-php83/root/usr/bin/php /opt/alt/php83/usr/bin/php /usr/local/bin/php php; do command -v "$p" >/dev/null 2>&1 && "$p" -r "exit(PHP_VERSION_ID >= 80200 ? 0 : 1);" 2>/dev/null && { echo "$p"; exit; }; done; echo NONE')
 [ "$PHP_BIN" != NONE ] || { echo "No PHP >= 8.2 CLI found. Enable 8.3+ in MultiPHP Manager / Select PHP Version and rerun." >&2; exit 1; }
 PHP_VERSION=$("${SSH[@]}" "$PHP_BIN -r 'echo PHP_MAJOR_VERSION.\".\".PHP_MINOR_VERSION;'")
@@ -63,15 +71,22 @@ fi
 
 step "Scheduler cron"
 CRON="* * * * * cd $APP_ROOT/current && $PHP_BIN artisan schedule:run >> /dev/null 2>&1"
-"${SSH[@]}" "(crontab -l 2>/dev/null | grep -v 'nilo/current && ' ; echo '$CRON') | crontab -"
-"${SSH[@]}" 'crontab -l | grep nilo'
+"${SSH[@]}" "(crontab -l 2>/dev/null | grep -v '$APP_DIR/current && ' ; echo '$CRON') | crontab -"
+"${SSH[@]}" "crontab -l | grep '$APP_DIR'"
 
-step "Document root"
-if [ "$DOCROOT" = public_html ]; then
-  "${SSH[@]}" "cd ~ && if [ -L public_html ]; then echo 'public_html already a symlink'; else mv public_html public_html.bak-\$(date +%Y%m%d%H%M%S) && ln -s '$APP_ROOT/current/public' public_html && echo 'public_html -> $APP_ROOT/current/public (old one backed up)'; fi"
-else
-  echo "Set the domain's document root in cPanel › Domains to: nilo/current/public"
-fi
+step "Document root: ~/$DOCROOT_DIR -> $APP_DIR/current/public"
+"${SSH[@]}" "set -e
+  D='$DOCROOT_PATH'; T='$APP_ROOT/current/public'
+  if [ -L \"\$D\" ]; then
+    ln -sfn \"\$T\" \"\$D\"; echo 'docroot symlink updated'
+  else
+    if [ -e \"\$D\" ]; then
+      echo 'Existing contents of '\"\$D\"':'; ls -A \"\$D\" | sed 's/^/  /'
+      mv \"\$D\" \"\$D.bak-\$(date +%Y%m%d%H%M%S)\"; echo '(moved to a .bak folder)'
+    fi
+    ln -s \"\$T\" \"\$D\"; echo 'docroot is now a symlink'
+  fi
+  ls -ld \"\$D\""
 
 step "Deploy key login check"
 ssh -p "$SSH_PORT" -i "$KEY" -o IdentitiesOnly=yes -o BatchMode=yes "$SSH_USER@$SSH_HOST" true && echo "deploy key OK"

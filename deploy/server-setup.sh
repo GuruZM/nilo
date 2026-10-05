@@ -4,10 +4,10 @@
 #   bash server-setup.sh [app-root] [php-binary]
 #
 # Creates the release layout, the shared storage tree and a production .env
-# with a fresh APP_KEY. Edit ~/nilo/shared/.env afterwards.
+# with a fresh APP_KEY. Edit <app-root>/shared/.env afterwards.
 set -euo pipefail
 
-APP_ROOT="${1:-$HOME/nilo}"
+APP_ROOT="${1:-$HOME/nilo-app}"
 PHP="${2:-php}"
 
 mkdir -p "$APP_ROOT"/{releases,shared}
@@ -39,5 +39,5 @@ done
 
 echo
 echo "Next:"
-echo "  1. Point the domain's document root at $APP_ROOT/current/public"
+echo "  1. Make the subdomain's folder a symlink: ln -s $APP_ROOT/current/public ~/nilo  (back up the old folder first)"
 echo "  2. Add the cron:  * * * * * cd $APP_ROOT/current && $PHP artisan schedule:run >> /dev/null 2>&1"
