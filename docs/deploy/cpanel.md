@@ -16,6 +16,15 @@ atomically swaps `current`. No Node or Composer needed on the server.
 
 ## One-time setup
 
+**Fast path:** from the repo root on a machine that can already SSH in:
+
+```
+SSH_HOST=… SSH_USER=… APP_URL=https://… [SSH_PORT=…] [DOCROOT=public_html] \
+  bash deploy/bootstrap-from-mac.sh
+```
+
+It does steps 3–6 and 8 below (steps 8 only if `gh` is logged in). The manual steps follow.
+
 1. **PHP** — cPanel › MultiPHP Manager: set the domain to PHP 8.3+. Find the CLI
    binary that matches (often `/opt/cpanel/ea-php83/root/usr/bin/php` or
    `/usr/local/bin/php`) — `php -v` in Terminal must print 8.3+.
