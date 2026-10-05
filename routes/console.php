@@ -23,3 +23,13 @@ Schedule::command('exchange-rates:sync')
 Schedule::command('dpo:reconcile')
     ->everyFifteenMinutes()
     ->withoutOverlapping();
+
+/**
+ * Shared hosting has no supervisor, so cron drains the database queue: a
+ * worker starts each minute, works until the queue is empty or 50 seconds
+ * pass, then exits before the next one is due.
+ */
+Schedule::command('queue:work --stop-when-empty --max-time=50 --tries=3')
+    ->everyMinute()
+    ->withoutOverlapping()
+    ->runInBackground();

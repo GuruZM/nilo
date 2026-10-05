@@ -1,0 +1,105 @@
+name: deploy
+
+# Ships main to the cPanel host once the test suite has passed on it.
+# Run it by hand from the Actions tab to redeploy without a new commit.
+on:
+  workflow_run:
+    workflows: [tests]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    environment: production
+
+    env:
+      DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
+      PHP_BIN: ${{ vars.PHP_BIN || 'php' }}
+      SSH_HOST: ${{ secrets.SSH_HOST }}
+      SSH_PORT: ${{ secrets.SSH_PORT || '22' }}
+      SSH_USER: ${{ secrets.SSH_USER }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          # Match the version the cPanel account runs (MultiPHP Manager).
+          php-version: ${{ vars.PHP_VERSION || '8.3' }}
+          tools: composer:v2
+          coverage: none
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install production PHP dependencies
+        run: composer install --no-dev --no-interaction --prefer-dist --optimize-autoloader --no-scripts
+
+      - name: Build frontend assets
+        env:
+          VITE_APP_NAME: ${{ vars.APP_NAME || 'Nilo' }}
+        run: |
+          npm ci
+          npm run build
+
+      - name: Name the release
+        id: release
+        run: echo "name=$(date -u +%Y%m%d%H%M%S)-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          ssh-keyscan -p "$SSH_PORT" -H "$SSH_HOST" >> ~/.ssh/known_hosts
+          cat >> ~/.ssh/config <<CFG
+          Host target
+            HostName $SSH_HOST
+            Port $SSH_PORT
+            User $SSH_USER
+            IdentityFile ~/.ssh/deploy_key
+            IdentitiesOnly yes
+          CFG
+
+      - name: Upload release
+        run: |
+          RELEASE_DIR="$DEPLOY_PATH/releases/${{ steps.release.outputs.name }}"
+          ssh target "mkdir -p '$RELEASE_DIR'"
+          rsync -az --delete \
+            --exclude='/.git/' \
+            --exclude='/.github/' \
+            --exclude='/node_modules/' \
+            --exclude='/tests/' \
+            --exclude='/storage/' \
+            --exclude='/.env' \
+            --exclude='/public/storage' \
+            --exclude='/public/hot' \
+            ./ "target:$RELEASE_DIR/"
+
+      - name: Activate release
+        run: |
+          ssh target "bash '$DEPLOY_PATH/releases/${{ steps.release.outputs.name }}/deploy/activate-release.sh' \
+            '$DEPLOY_PATH' '${{ steps.release.outputs.name }}' '$PHP_BIN'"
+
+      - name: Smoke test
+        if: vars.APP_URL != ''
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' -L "${{ vars.APP_URL }}/login")
+          echo "GET /login -> $code"
+          test "$code" = "200"
