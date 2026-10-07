@@ -105,6 +105,19 @@ jobs:
       SSH_USER: ${{ secrets.SSH_USER }}
 
     steps:
+      - name: Check deploy settings
+        env:
+          SSH_KEY_SET: ${{ secrets.SSH_PRIVATE_KEY != '' }}
+        run: |
+          ok=1
+          for v in SSH_HOST SSH_USER DEPLOY_PATH; do
+            if [ -z "${!v}" ]; then echo "::error::$v is empty. Add it to Settings > Environments > production (DEPLOY_PATH as a variable, SSH_* as secrets)."; ok=0; fi
+          done
+          [ "$SSH_KEY_SET" = "true" ] || { echo "::error::SSH_PRIVATE_KEY secret is empty."; ok=0; }
+          case "$DEPLOY_PATH" in /*) ;; *) echo "::error::DEPLOY_PATH must be an absolute path like /home/<user>/nilo-app, got '$DEPLOY_PATH'"; ok=0;; esac
+          echo "DEPLOY_PATH=$DEPLOY_PATH  PHP_BIN=$PHP_BIN  port set: $([ -n "$SSH_PORT" ] && echo yes)"
+          [ "$ok" = 1 ]
+
       - uses: actions/checkout@v4
 
       - uses: shivammathur/setup-php@v2
@@ -152,7 +165,7 @@ jobs:
       - name: Upload release
         run: |
           RELEASE_DIR="$DEPLOY_PATH/releases/${{ steps.release.outputs.name }}"
-          ssh target "mkdir -p '$RELEASE_DIR'"
+          ssh target "echo connected as \$(whoami); command -v rsync >/dev/null || { echo 'rsync missing on server'; exit 1; }; mkdir -p '$RELEASE_DIR'"
           rsync -az --delete \
             --exclude='/.git/' \
             --exclude='/.github/' \
