@@ -11,7 +11,7 @@ it('returns every pinned ISO 4217 code', function () {
     expect($this->rows)->toHaveCount(count(CurrencyCatalog::ISO_4217));
 });
 
-it('pins only codes that ICU actually knows', function () {
+it('pins only codes that ICU knows or the catalog backfills', function () {
     $bundle = ResourceBundle::create('en', 'ICUDATA-curr');
     $known = [];
 
@@ -21,7 +21,7 @@ it('pins only codes that ICU actually knows', function () {
 
     $unknown = array_values(array_filter(
         CurrencyCatalog::ISO_4217,
-        fn (string $code) => ! isset($known[$code]),
+        fn (string $code) => ! isset($known[$code]) && ! isset(CurrencyCatalog::ICU_BACKFILL[$code]),
     ));
 
     expect($unknown)->toBe([]);
@@ -70,3 +70,9 @@ it('excludes currencies that have been retired', function (string $code) {
     'cuban convertible peso' => 'CUC',
     'old leone' => 'SLL',
 ]);
+
+it('keeps currencies older ICU builds do not know', function () {
+    expect($this->rows['ZWG']['name'])->not->toBeEmpty()
+        ->and($this->rows['ZWG']['precision'])->toBe(2)
+        ->and($this->rows['XCG']['name'])->not->toBeEmpty();
+});

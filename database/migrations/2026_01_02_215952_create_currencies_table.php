@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('currencies', function (Blueprint $table) {
-              $table->id();
+            $table->id();
 
             /**
              * ISO 4217 currency code
@@ -31,7 +31,7 @@ return new class extends Migration
              * Examples: K, $, R
              */
             $table->string('symbol')->nullable();
- 
+
             $table->unsignedTinyInteger('precision')->default(2);
             $table->boolean('is_active')->default(true);
 

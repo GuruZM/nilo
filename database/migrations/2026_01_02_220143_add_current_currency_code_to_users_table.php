@@ -12,7 +12,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('users', function (Blueprint $table) {
-             $table->string('current_currency_code', 3)->nullable()->after('current_company_id');
+            $table->string('current_currency_code', 3)->nullable()->after('current_company_id');
             $table->index('current_currency_code');
         });
     }

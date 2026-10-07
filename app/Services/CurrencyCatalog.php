@@ -19,7 +19,8 @@ class CurrencyCatalog
      *
      * ICU's `CurrencyMap` supplemental data would derive this, but it is not
      * reachable from this PHP build, so the list is maintained by hand. Every
-     * code here is asserted to exist in ICU by the catalog's test.
+     * code here is asserted to exist in ICU, or in ICU_BACKFILL, by the
+     * catalog's test.
      *
      * @var list<string>
      */
@@ -56,6 +57,19 @@ class CurrencyCatalog
     ];
 
     /**
+     * Codes too new for older ICU builds (ICU 74 and below predate them).
+     *
+     * Without these, a server on an older `intl` silently drops the currency
+     * from the catalog. ICU's own entry wins whenever it has one.
+     *
+     * @var array<string, array{name: string, symbol: string|null}>
+     */
+    public const ICU_BACKFILL = [
+        'XCG' => ['name' => 'Caribbean Guilder', 'symbol' => null],
+        'ZWG' => ['name' => 'Zimbabwean Gold', 'symbol' => null],
+    ];
+
+    /**
      * Every current currency, with its display name, symbol and minor units.
      *
      * @return list<array{code: string, name: string, symbol: string|null, precision: int}>
@@ -67,7 +81,7 @@ class CurrencyCatalog
         $rows = [];
 
         foreach (self::ISO_4217 as $code) {
-            $entry = $icu[$code] ?? null;
+            $entry = $icu[$code] ?? self::ICU_BACKFILL[$code] ?? null;
 
             if ($entry === null) {
                 continue;

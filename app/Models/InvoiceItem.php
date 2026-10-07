@@ -6,7 +6,7 @@ use Illuminate\Database\Eloquent\Model;
 
 class InvoiceItem extends Model
 {
-      protected $fillable = [
+    protected $fillable = [
         'invoice_id',
         'description',
         'unit',
@@ -25,6 +25,7 @@ class InvoiceItem extends Model
         'tax' => 'decimal:2',
         'line_total' => 'decimal:2',
     ];
+
     public function invoice()
     {
         return $this->belongsTo(Invoice::class);
