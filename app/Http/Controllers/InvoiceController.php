@@ -16,6 +16,7 @@ use App\Services\InvoiceSettlement;
 use App\Services\SubscriptionLimitService;
 use App\Support\DocumentRules;
 use App\Support\DocumentTotals;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\View;
@@ -384,6 +385,18 @@ class InvoiceController extends Controller
             'prerequisites' => $prerequisites->toArray(),
             'limitNotice' => $request->session()->get('limit_notice'),
         ]);
+    }
+
+    /**
+     * Emails a saved invoice to its client, with the PDF attached.
+     */
+    public function send(Request $request, Invoice $invoice): RedirectResponse
+    {
+        abort_unless((int) $invoice->company_id === $this->companyId($request), 403);
+
+        $result = $this->sender->handle($invoice);
+
+        return back()->with($result['sent'] ? 'success' : 'error', $result['message']);
     }
 
     public function preview(Request $request, Invoice $invoice)

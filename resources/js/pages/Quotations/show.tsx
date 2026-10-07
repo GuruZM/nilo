@@ -19,6 +19,7 @@ import LimitNoticeDialog, {
     type LimitNotice,
 } from '@/components/limit-notice-dialog';
 import { Money } from '@/components/money';
+import SendDocumentButton from '@/components/send-document-button';
 import {
     Dialog,
     DialogContent,
@@ -304,6 +305,15 @@ export default function QuotationShow({
                             <Download className="h-4 w-4" />
                             Download PDF
                         </PillButton>
+
+                        <SendDocumentButton
+                            url={`/quotations/${quotation.id}/send`}
+                            documentLabel={
+                                quotation.number ?? `Quotation #${quotation.id}`
+                            }
+                            recipientName={quotation.client?.name}
+                            recipientEmail={clientEmail}
+                        />
 
                         {/* Billed already, or not yet — never both. */}
                         {invoice ? (

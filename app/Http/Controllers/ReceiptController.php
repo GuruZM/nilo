@@ -8,6 +8,7 @@ use App\Models\InvoicePayment;
 use App\Services\DocumentRenderer;
 use App\Services\Documents\IssueReceipt;
 use App\Services\Documents\RecordInvoicePayment;
+use App\Services\Documents\SendDocumentToCounterparty;
 use App\Support\DocumentRules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -29,6 +30,7 @@ class ReceiptController extends Controller
         private DocumentRenderer $documents,
         private IssueReceipt $issuer,
         private RecordInvoicePayment $recorder,
+        private SendDocumentToCounterparty $sender,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -160,7 +162,7 @@ class ReceiptController extends Controller
         $receipt->load([
             'client:id,company_id,name,email,address,contact_person',
             'invoice:id,number,client_id,currency_code',
-            'invoice.client:id,name',
+            'invoice.client:id,name,email,contact_person',
             'recorder:id,name',
         ]);
 
@@ -215,6 +217,18 @@ class ReceiptController extends Controller
         return redirect()
             ->route('receipts.index')
             ->with('success', 'Receipt removed.');
+    }
+
+    /**
+     * Emails the receipt to its client, with the PDF attached.
+     */
+    public function send(Request $request, InvoicePayment $receipt): RedirectResponse
+    {
+        $this->guard($request, $receipt);
+
+        $result = $this->sender->handle($receipt);
+
+        return back()->with($result['sent'] ? 'success' : 'error', $result['message']);
     }
 
     public function preview(Request $request, InvoicePayment $receipt)

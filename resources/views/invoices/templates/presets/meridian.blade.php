@@ -103,22 +103,7 @@
     $bankHtml = $template->bank_html ?? ($company->bank_details_html ?? $company->bank_details ?? null);
     $signName = $company->signatory_name ?? 'Authorised signatory';
 
-    /**
-     * DomPDF cannot fetch over HTTP here (remote is disabled), so the PDF reads
-     * the logo straight off the public disk while the browser gets its URL.
-     */
-    $logoSrc = null;
-    if (! empty($company?->logo_path)) {
-        $relative = \Illuminate\Support\Str::after(ltrim($company->logo_path, '/'), 'storage/');
-        if (\Illuminate\Support\Str::startsWith($company->logo_path, ['http://', 'https://'])) {
-            $logoSrc = $isPdf ? null : $company->logo_path;
-        } elseif ($isPdf) {
-            $disk = \Illuminate\Support\Facades\Storage::disk('public');
-            $logoSrc = $disk->exists($relative) ? $disk->path($relative) : null;
-        } else {
-            $logoSrc = asset('storage/'.$relative);
-        }
-    }
+    $logoSrc = \App\Support\DocumentLogo::src($company->logo_path ?? null, $isPdf);
 
     $qrUrl = trim((string) ($content['qr_url'] ?? ''));
     $qrImage = $showQr ? \App\Support\QrCodeSvg::dataUri($qrUrl, $panel) : null;
@@ -167,7 +152,7 @@
         body { font-family: {!! $fontFamily !!}; color: {{ $ink }}; font-size: 12px; line-height: 1.45; background: {{ $isPdf ? '#F1F3F6' : '#E5E7EB' }}; }
 
         .page-wrap { padding: 24px 0; }
-        .sheet { position: relative; width: 210mm; min-height: 297mm; margin: 0 auto; background: #F1F3F6; padding: 0 {{ $gutter }} 26mm; box-shadow: 0 18px 60px rgba(0,0,0,.12); }
+        .sheet { position: relative; width: 210mm; min-height: 297mm; margin: 0 auto; background: #F1F3F6; padding: 11mm {{ $gutter }} 26mm; box-shadow: 0 18px 60px rgba(0,0,0,.12); }
         @if($isPdf || $isEmbedded)
             .page-wrap { padding: 0; }
             .sheet { box-shadow: none; }
@@ -176,18 +161,18 @@
         table { border-collapse: collapse; }
         .muted { color: #6B7280; }
 
-        .top { width: 100%; margin-top: 11mm; }
+        .top { width: 100%; }
         .top td { vertical-align: top; padding: 0; }
-        .panel { background: {{ $panel }}; color: #FFFFFF; padding: 13mm 9mm 9mm; min-height: 64mm; border-bottom-left-radius: 6mm; }
         /*
-         * The QR tile straddles the top of the panel. It is drawn with a rowspan
-         * rather than overlap tricks because DomPDF counts absolutely positioned
-         * children and negative margins towards their parent's height.
+         * The QR tile straddles the top of the panel: 20mm above it, 12mm inside.
+         * It is pinned over one panel block rather than split across table cells,
+         * because DomPDF stretched a rowspan past the tile and left hairline seams
+         * wherever two fills met.
          */
-        .tile-row { width: 72mm; }
-        .tile-row td { padding: 0; }
-        .tile-row .fill { background: {{ $panel }}; }
-        .tile { width: 32mm; height: 32mm; background: #FFFFFF; border-radius: 3mm; text-align: center; padding: 3.5mm; }
+        .side { position: relative; }
+        .side-lead { height: 20mm; }
+        .panel { background: {{ $panel }}; color: #FFFFFF; padding: 25mm 9mm 9mm; min-height: 76mm; border-bottom-left-radius: 6mm; }
+        .tile { position: absolute; top: 0; left: 18mm; width: 32mm; height: 32mm; background: #FFFFFF; border-radius: 3mm; text-align: center; padding: 3.5mm; }
         .tile img { width: 25mm; height: 25mm; }
         .tile .initials { line-height: 25mm; font-size: 30px; font-weight: {{ $heavy }}; color: {{ $panel }}; }
         .panel .label { font-weight: {{ $bold }}; font-size: 12px; }
@@ -269,14 +254,15 @@
         @if($isPdf)
             {{-- Last in the sheet so it wins the cascade. DomPDF ignores box-sizing on blocks and has no Inter; spacing is tighter so a typical document stays on one page. --}}
             body, .sheet { font-family: Helvetica, Arial, sans-serif; }
-            .sheet { width: auto; min-height: 0; padding-bottom: 4mm; }
-            .top { margin-top: 6mm; }
-            .panel { min-height: 0; padding: 8mm 9mm 4mm; }
-            .tile { width: 25mm; height: 25mm; border-radius: 0; }
+            .sheet { width: auto; min-height: 0; padding-top: 6mm; padding-bottom: 4mm; }
+            .panel { min-height: 0; padding: 20mm 9mm 4mm; }
+            .tile { width: 25mm; height: 25mm; }
             .title { margin-top: 9mm; }
             .card, .from { margin-top: 6mm; }
-            .items-card { margin-top: 6mm; }
-            .items th { padding-top: 4mm; padding-bottom: 4mm; }
+            .items-card { position: relative; margin-top: 6mm; }
+            {{-- Abutting cell fills leave hairlines in PDF viewers; one bar of the same colour behind the header row hides them. --}}
+            .items-head { position: absolute; z-index: -1; top: 0; left: 0; right: 0; height: 13mm; background: {{ $panel }}; }
+            .items th { height: 5mm; padding-top: 4mm; padding-bottom: 4mm; }
             .items th:first-child, .items th:last-child { border-radius: 0; }
             .items td { padding-top: 2.5mm; padding-bottom: 2.5mm; }
             .sums .first td { padding-top: 3mm; }
@@ -305,56 +291,47 @@
         <table class="top">
             <tr>
                 <td style="width: 72mm;">
-                    <table class="tile-row">
-                        <tr>
-                            <td style="width: 18mm; height: 20mm;"></td>
-                            <td rowspan="2" class="fill" style="width: 32mm; vertical-align: top;">
-                                <div class="tile">
-                                    @if($qrImage)
-                                        <img src="{{ $qrImage }}" alt="QR code">
-                                    @elseif($showLogo && $logoSrc)
-                                        <img src="{{ $logoSrc }}" alt="Logo" style="object-fit: contain;">
-                                    @else
-                                        <div class="initials">{{ $initials }}</div>
-                                    @endif
-                                </div>
-                            </td>
-                            <td></td>
-                        </tr>
-                        <tr>
-                            <td class="fill" style="height: 12mm;"></td>
-                            <td class="fill"></td>
-                        </tr>
-                    </table>
-                    <div class="panel">
+                    <div class="side">
+                        <div class="side-lead"></div>
+                        <div class="panel">
 
-                        <div class="label">Date</div>
-                        <div class="value">{{ $date($issueDate) ?? '—' }}</div>
-                        @if($secondDateLabel !== null)
-                            <div class="label">{{ $secondDateLabel }}</div>
-                            <div class="value">{{ $date($secondDate) ?? '—' }}</div>
-                        @endif
+                            <div class="label">Date</div>
+                            <div class="value">{{ $date($issueDate) ?? '—' }}</div>
+                            @if($secondDateLabel !== null)
+                                <div class="label">{{ $secondDateLabel }}</div>
+                                <div class="value">{{ $date($secondDate) ?? '—' }}</div>
+                            @endif
 
-                        <div class="rule"></div>
+                            <div class="rule"></div>
 
-                        <div class="label">{{ rtrim($type->counterpartyLabel(), ':') }}</div>
-                        <div class="value" style="margin-bottom: 1mm;">{{ $client->name ?? '—' }}</div>
-                        @if($showContactPerson && ! empty($client->contact_person))
-                            <div class="value" style="margin-bottom: 1mm;">Attn: {{ $client->contact_person }}</div>
-                        @endif
-                        @if(! empty($client->address))
-                            <div class="value" style="margin-bottom: 1mm;">{{ $client->address }}</div>
-                        @endif
-                        <div style="height: 3mm;"></div>
-                        @if(! empty($client->phone))
-                            <div class="value" style="margin-bottom: 1mm;">{{ $client->phone }}</div>
-                        @endif
-                        @if($showClientEmail && ! empty($client->email))
-                            <div class="value" style="margin-bottom: 1mm;">{{ $client->email }}</div>
-                        @endif
-                        @if(! empty($client->tpin))
-                            <div class="value" style="margin-bottom: 1mm;">TPIN: {{ $client->tpin }}</div>
-                        @endif
+                            <div class="label">{{ rtrim($type->counterpartyLabel(), ':') }}</div>
+                            <div class="value" style="margin-bottom: 1mm;">{{ $client->name ?? '—' }}</div>
+                            @if($showContactPerson && ! empty($client->contact_person))
+                                <div class="value" style="margin-bottom: 1mm;">Attn: {{ $client->contact_person }}</div>
+                            @endif
+                            @if(! empty($client->address))
+                                <div class="value" style="margin-bottom: 1mm;">{{ $client->address }}</div>
+                            @endif
+                            <div style="height: 3mm;"></div>
+                            @if(! empty($client->phone))
+                                <div class="value" style="margin-bottom: 1mm;">{{ $client->phone }}</div>
+                            @endif
+                            @if($showClientEmail && ! empty($client->email))
+                                <div class="value" style="margin-bottom: 1mm;">{{ $client->email }}</div>
+                            @endif
+                            @if(! empty($client->tpin))
+                                <div class="value" style="margin-bottom: 1mm;">TPIN: {{ $client->tpin }}</div>
+                            @endif
+                        </div>
+                        <div class="tile">
+                            @if($qrImage)
+                                <img src="{{ $qrImage }}" alt="QR code">
+                            @elseif($showLogo && $logoSrc)
+                                <img src="{{ $logoSrc }}" alt="Logo" style="object-fit: contain;">
+                            @else
+                                <div class="initials">{{ $initials }}</div>
+                            @endif
+                        </div>
                     </div>
                 </td>
                 <td style="width: 14mm;"></td>
@@ -404,6 +381,9 @@
         </table>
 
         <div class="items-card">
+            @if($isPdf)
+                <div class="items-head"></div>
+            @endif
             <table class="items {{ in_array($tableStyle, ['striped', 'lined'], true) ? $tableStyle : '' }}">
                 <thead>
                     <tr>

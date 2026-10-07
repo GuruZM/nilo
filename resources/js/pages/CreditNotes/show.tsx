@@ -22,6 +22,7 @@ import {
     pillButtonClass,
 } from '@/components/dashboard/primitives';
 import { Money } from '@/components/money';
+import SendDocumentButton from '@/components/send-document-button';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types/index.d';
@@ -205,6 +206,16 @@ export default function CreditNoteShow({
                             <Download className="h-4 w-4" />
                             Download PDF
                         </PillButton>
+
+                        <SendDocumentButton
+                            url={`/credit-notes/${creditNote.id}/send`}
+                            documentLabel={
+                                creditNote.number ??
+                                `Credit note #${creditNote.id}`
+                            }
+                            recipientName={creditNote.client?.name}
+                            recipientEmail={creditNote.client?.email}
+                        />
                     </div>
                 </div>
 

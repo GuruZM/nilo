@@ -7,12 +7,14 @@ use App\Models\User;
 use App\Services\InvoiceDocumentRenderer;
 use App\Support\QrCodeSvg;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Facades\Storage;
 
 /**
  * @param  array<string, mixed>  $settings
  * @param  array<string, mixed>  $document
+ * @param  array<string, mixed>  $company
  */
-function renderMeridian(DocumentType $type, array $settings = [], array $document = [], string $mode = 'preview'): string
+function renderMeridian(DocumentType $type, array $settings = [], array $document = [], string $mode = 'preview', array $company = []): string
 {
     $resolved = app(InvoiceDocumentRenderer::class)->normalizedSettings(new InvoiceTemplate([
         'settings' => array_replace_recursive([
@@ -23,7 +25,7 @@ function renderMeridian(DocumentType $type, array $settings = [], array $documen
     ]));
 
     return view('invoices.templates.default', [
-        'company' => (object) ['name' => 'Resonant Technologies', 'address' => 'Lusaka, Zambia', 'email' => 'sales@resonantt.com'],
+        'company' => (object) ($company + ['name' => 'Resonant Technologies', 'address' => 'Lusaka, Zambia', 'email' => 'sales@resonantt.com']),
         'client' => (object) ['name' => 'Acme Holdings Ltd', 'email' => 'accounts@acme.co.zm'],
         'template' => new InvoiceTemplate(['settings' => $resolved, 'terms_html' => '<p>Valid for 30 days.</p>']),
         'currency' => (object) ['code' => 'ZMW', 'symbol' => 'K', 'precision' => 2],
@@ -116,6 +118,56 @@ it('fits a single item document on one PDF page', function (DocumentType $type) 
     expect($pdf)->toStartWith('%PDF')
         ->and(preg_match_all('#/Type\s*/Page[^s]#', $pdf))->toBe(1);
 })->with([DocumentType::Invoice, DocumentType::Quotation]);
+
+/**
+ * A 1×1 RGB PNG; without an alpha channel DomPDF decodes it without GD.
+ */
+function meridianLogoPng(): string
+{
+    return base64_decode('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGOQti0CAAFBAMt92zIGAAAAAElFTkSuQmCC');
+}
+
+/**
+ * On the server each release links `storage` to a shared directory, outside
+ * DomPDF's chroot, so a logo handed over as a file path printed as its alt text.
+ */
+it('draws the logo into the PDF even when storage sits outside the DomPDF chroot', function () {
+    Storage::fake('public');
+    Storage::disk('public')->put('company-logos/acme.png', meridianLogoPng());
+    config(['dompdf.options.chroot' => app_path()]);
+
+    $html = renderMeridian(DocumentType::Quotation, ['content' => ['qr_url' => '']], mode: 'pdf', company: ['logo_path' => 'company-logos/acme.png']);
+    $pdf = Pdf::loadHTML($html)->setPaper('a4')->output();
+
+    expect($html)->toContain('alt="Logo"')
+        ->and($html)->toContain('data:image/png;base64,')
+        ->and($pdf)->toMatch('#/Subtype\s*/Image#');
+});
+
+it('pins the tile over one panel instead of splitting the panel across cells', function (string $mode) {
+    $html = renderMeridian(DocumentType::Invoice, mode: $mode);
+
+    expect($html)->toContain('<div class="side-lead"></div>')
+        ->and($html)->toContain('<div class="tile">')
+        ->and($html)->not->toContain('rowspan=');
+})->with(['preview', 'pdf']);
+
+it('backs the item header with one bar only in the PDF', function () {
+    expect(renderMeridian(DocumentType::Invoice, mode: 'pdf'))->toContain('<div class="items-head"></div>')
+        ->and(renderMeridian(DocumentType::Invoice))->not->toContain('<div class="items-head"></div>');
+});
+
+it('inlines the logo into the default sheet PDF as well', function () {
+    Storage::fake('public');
+    Storage::disk('public')->put('company-logos/acme.png', meridianLogoPng());
+
+    $company = ['logo_path' => 'company-logos/acme.png'];
+
+    expect(renderMeridian(DocumentType::Invoice, ['preset' => 'wave_premium'], mode: 'pdf', company: $company))
+        ->toContain('data:image/png;base64,')
+        ->and(renderMeridian(DocumentType::Invoice, ['preset' => 'wave_premium'], company: $company))
+        ->toContain('/storage/company-logos/acme.png');
+});
 
 it('encodes nothing for a blank link', function () {
     expect(QrCodeSvg::make('   '))->toBeNull()

@@ -27,6 +27,7 @@ import {
     TotalRow,
 } from '@/components/dashboard/primitives';
 import { Money } from '@/components/money';
+import SendDocumentButton from '@/components/send-document-button';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types/index.d';
@@ -278,6 +279,15 @@ export default function InvoiceShow({
                             <Download className="h-4 w-4" />
                             Download PDF
                         </PillButton>
+
+                        <SendDocumentButton
+                            url={`/invoices/${invoice.id}/send`}
+                            documentLabel={
+                                invoice.number ?? `Invoice #${invoice.id}`
+                            }
+                            recipientName={invoice.client?.name}
+                            recipientEmail={invoice.client?.email}
+                        />
 
                         <PillButton
                             variant="ghost"

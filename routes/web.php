@@ -137,6 +137,11 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
             ->whereNumber('invoice')
             ->name('status');
 
+        Route::post('/{invoice}/send', [InvoiceController::class, 'send'])
+            ->whereNumber('invoice')
+            ->middleware('throttle:document-email')
+            ->name('send');
+
         Route::get('/{invoice}/preview', [InvoiceController::class, 'preview'])
             ->whereNumber('invoice')
             ->name('preview');
@@ -186,6 +191,11 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
             ->whereNumber('quotation')
             ->name('invoice.store');
 
+        Route::post('/{quotation}/send', [\App\Http\Controllers\QuotationController::class, 'send'])
+            ->whereNumber('quotation')
+            ->middleware('throttle:document-email')
+            ->name('send');
+
         Route::get('/{quotation}/preview', [\App\Http\Controllers\QuotationController::class, 'preview'])
             ->whereNumber('quotation')
             ->name('preview');
@@ -214,6 +224,11 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
             ->whereNumber('receipt')
             ->name('destroy');
 
+        Route::post('/{receipt}/send', [\App\Http\Controllers\ReceiptController::class, 'send'])
+            ->whereNumber('receipt')
+            ->middleware('throttle:document-email')
+            ->name('send');
+
         Route::get('/{receipt}/preview', [\App\Http\Controllers\ReceiptController::class, 'preview'])
             ->whereNumber('receipt')
             ->name('preview');
@@ -237,6 +252,11 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
             ->whereNumber('creditNote')
             ->name('status');
 
+        Route::post('/{creditNote}/send', [\App\Http\Controllers\CreditNoteController::class, 'send'])
+            ->whereNumber('creditNote')
+            ->middleware('throttle:document-email')
+            ->name('send');
+
         Route::get('/{creditNote}/preview', [\App\Http\Controllers\CreditNoteController::class, 'preview'])
             ->whereNumber('creditNote')
             ->name('preview');
@@ -257,6 +277,11 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
         Route::put('/{deliveryNote}', [\App\Http\Controllers\DeliveryNoteController::class, 'update'])
             ->whereNumber('deliveryNote')
             ->name('update');
+
+        Route::post('/{deliveryNote}/send', [\App\Http\Controllers\DeliveryNoteController::class, 'send'])
+            ->whereNumber('deliveryNote')
+            ->middleware('throttle:document-email')
+            ->name('send');
 
         Route::get('/{deliveryNote}/preview', [\App\Http\Controllers\DeliveryNoteController::class, 'preview'])
             ->whereNumber('deliveryNote')
@@ -280,6 +305,11 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
         Route::post('/{purchaseOrder}/status', [\App\Http\Controllers\PurchaseOrderController::class, 'updateStatus'])
             ->whereNumber('purchaseOrder')
             ->name('status');
+
+        Route::post('/{purchaseOrder}/send', [\App\Http\Controllers\PurchaseOrderController::class, 'send'])
+            ->whereNumber('purchaseOrder')
+            ->middleware('throttle:document-email')
+            ->name('send');
 
         Route::get('/{purchaseOrder}/preview', [\App\Http\Controllers\PurchaseOrderController::class, 'preview'])
             ->whereNumber('purchaseOrder')

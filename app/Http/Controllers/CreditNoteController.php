@@ -8,6 +8,7 @@ use App\Models\Invoice;
 use App\Services\DocumentRenderer;
 use App\Services\Documents\CreateCreditNote;
 use App\Services\Documents\CreditNoteHeadroom;
+use App\Services\Documents\SendDocumentToCounterparty;
 use App\Services\InvoiceSettlement;
 use App\Support\DocumentRules;
 use Illuminate\Http\RedirectResponse;
@@ -33,6 +34,7 @@ class CreditNoteController extends Controller
         private InvoiceSettlement $settlement,
         private CreateCreditNote $creator,
         private CreditNoteHeadroom $headroom,
+        private SendDocumentToCounterparty $sender,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -259,6 +261,18 @@ class CreditNoteController extends Controller
         });
 
         return back()->with('success', 'Credit note is now '.$data['status'].'.');
+    }
+
+    /**
+     * Emails the credit note to its client, with the PDF attached.
+     */
+    public function send(Request $request, CreditNote $creditNote): RedirectResponse
+    {
+        abort_unless((int) $creditNote->company_id === $this->companyId($request), 403);
+
+        $result = $this->sender->handle($creditNote);
+
+        return back()->with($result['sent'] ? 'success' : 'error', $result['message']);
     }
 
     public function preview(Request $request, CreditNote $creditNote)

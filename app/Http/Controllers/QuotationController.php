@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreQuotationInvoiceRequest;
-use App\Mail\QuotationToClient;
 use App\Models\Client;
 use App\Models\Company;
 use App\Models\Currency;
@@ -13,6 +12,7 @@ use App\Services\DocumentPrerequisites;
 use App\Services\Documents\CreateInvoiceFromQuotation;
 use App\Services\Documents\CreateQuotation;
 use App\Services\Documents\SendInvoiceToClient;
+use App\Services\Documents\SendQuotationToClient;
 use App\Services\QuotationDocumentRenderer;
 use App\Services\SubscriptionLimitService;
 use App\Support\DocumentRules;
@@ -21,7 +21,6 @@ use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\View;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
@@ -36,6 +35,7 @@ class QuotationController extends Controller
         private CreateQuotation $creator,
         private CreateInvoiceFromQuotation $invoicer,
         private SendInvoiceToClient $sender,
+        private SendQuotationToClient $quotationSender,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -398,60 +398,12 @@ class QuotationController extends Controller
                 ->withInput();
         }
 
-        $delivery = $this->deliverToClient($quotation, (bool) ($data['send_to_client'] ?? false));
+        $delivery = $this->quotationSender->afterCreate($quotation, (bool) ($data['send_to_client'] ?? false));
 
         return redirect()
             ->route('quotations.show', $quotation)
             ->with($delivery['level'], $delivery['message'])
             ->with('quotation_created', true);
-    }
-
-    /**
-     * Queues the quotation to its client when the creator asked for it. The
-     * quotation is already saved by this point, so nothing here may throw — a
-     * delivery problem downgrades the flash message rather than losing work.
-     *
-     * @return array{level: string, message: string}
-     */
-    private function deliverToClient(Quotation $quotation, bool $requested): array
-    {
-        if (! $requested) {
-            return ['level' => 'success', 'message' => 'Quotation created.'];
-        }
-
-        $quotation->loadMissing(['client', 'company']);
-        $email = trim((string) $quotation->client?->email);
-
-        if ($email === '') {
-            return [
-                'level' => 'info',
-                'message' => 'Quotation created, but it was not emailed because the client has no email address.',
-            ];
-        }
-
-        try {
-            Mail::to($email)->send(new QuotationToClient($quotation));
-
-            /** A quotation that has gone out is no longer a draft. */
-            if ($quotation->status === 'draft') {
-                $quotation->update(['status' => 'sent']);
-            }
-
-            return [
-                'level' => 'success',
-                'message' => 'Quotation created and queued to '.$email.'.',
-            ];
-        } catch (\Throwable $exception) {
-            Log::error('Quotation email failed', [
-                'quotation_id' => $quotation->id,
-                'error' => $exception->getMessage(),
-            ]);
-
-            return [
-                'level' => 'info',
-                'message' => 'Quotation created, but the email could not be sent. You can send it again from the quotation.',
-            ];
-        }
     }
 
     public function show(Request $request, Quotation $quotation): Response
@@ -573,6 +525,18 @@ class QuotationController extends Controller
         $quotation->update(['status' => $data['status']]);
 
         return back()->with('success', 'Quotation status updated to '.$data['status'].'.');
+    }
+
+    /**
+     * Emails a saved quotation to its client, with the PDF attached.
+     */
+    public function send(Request $request, Quotation $quotation): RedirectResponse
+    {
+        abort_unless((int) $quotation->company_id === $this->companyId($request), 403);
+
+        $result = $this->quotationSender->handle($quotation);
+
+        return back()->with($result['sent'] ? 'success' : 'error', $result['message']);
     }
 
     public function preview(Request $request, Quotation $quotation)

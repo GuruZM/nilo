@@ -22,6 +22,7 @@ import {
     fieldInputClass,
     pillButtonClass,
 } from '@/components/dashboard/primitives';
+import SendDocumentButton from '@/components/send-document-button';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types/index.d';
@@ -265,6 +266,16 @@ export default function DeliveryNoteShow({
                             <Download className="h-4 w-4" />
                             Download PDF
                         </PillButton>
+
+                        <SendDocumentButton
+                            url={`/delivery-notes/${deliveryNote.id}/send`}
+                            documentLabel={
+                                deliveryNote.number ??
+                                `Delivery note #${deliveryNote.id}`
+                            }
+                            recipientName={deliveryNote.client?.name}
+                            recipientEmail={deliveryNote.client?.email}
+                        />
                     </div>
                 </div>
 

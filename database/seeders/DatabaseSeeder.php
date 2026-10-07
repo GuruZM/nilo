@@ -18,6 +18,7 @@ class DatabaseSeeder extends Seeder
     {
         $this->call([
             PlanSeeder::class,
+            CurrencySeeder::class,
         ]);
 
         // Only run RolePermissionSeeder if Spatie tables exist

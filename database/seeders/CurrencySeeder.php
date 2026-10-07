@@ -17,10 +17,17 @@ class CurrencySeeder extends Seeder
 
     /**
      * Run the database seeds.
+     *
+     * The defaults are only switched on while nothing is active yet, so
+     * re-seeding a live install never re-enables a currency someone turned off.
      */
     public function run(): void
     {
         $this->runQuietly('currencies:sync');
+
+        if (Currency::query()->where('is_active', true)->exists()) {
+            return;
+        }
 
         Currency::query()
             ->whereIn('code', self::DEFAULT_ACTIVE)

@@ -19,6 +19,7 @@ import {
     SoftTile,
     pillButtonClass,
 } from '@/components/dashboard/primitives';
+import SendDocumentButton from '@/components/send-document-button';
 import { Badge } from '@/components/ui/badge';
 import AppLayout from '@/layouts/app-layout';
 import { formatMoney } from '@/lib/money';
@@ -161,6 +162,13 @@ export default function ReceiptShow({ receipt }: { receipt: ReceiptData }) {
                             <Download className="h-4 w-4" />
                             Download PDF
                         </PillButton>
+
+                        <SendDocumentButton
+                            url={`/receipts/${receipt.id}/send`}
+                            documentLabel={label}
+                            recipientName={receipt.client?.name}
+                            recipientEmail={receipt.client?.email}
+                        />
 
                         <PillButton variant="ghost" size="sm" onClick={remove}>
                             <Trash2 className="h-4 w-4" />

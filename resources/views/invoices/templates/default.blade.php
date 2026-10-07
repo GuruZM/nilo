@@ -150,8 +150,8 @@
 
         $notesText = $isArray ? ($invoice['notes'] ?? '') : ($invoice->notes ?? '');
 
-        // --------- Company logo (browser safe)
-        $companyLogoUrl = !empty($company?->logo_path) ? asset('storage/' . ltrim($company->logo_path, '/')) : null;
+        // --------- Company logo (inlined for DomPDF, a URL for the browser)
+        $companyLogoUrl = \App\Support\DocumentLogo::src($company->logo_path ?? null, $documentMode === 'pdf');
 
         // --------- Font mapping
         $fontFamily = match ($fontKey) {

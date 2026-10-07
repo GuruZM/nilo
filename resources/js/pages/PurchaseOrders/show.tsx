@@ -21,6 +21,7 @@ import {
     TotalRow,
 } from '@/components/dashboard/primitives';
 import { Money } from '@/components/money';
+import SendDocumentButton from '@/components/send-document-button';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types/index.d';
@@ -211,6 +212,14 @@ export default function PurchaseOrderShow({
                             <Download className="h-4 w-4" />
                             Download PDF
                         </PillButton>
+
+                        <SendDocumentButton
+                            url={`/purchase-orders/${purchaseOrder.id}/send`}
+                            documentLabel={label}
+                            recipientName={purchaseOrder.supplier?.name}
+                            recipientEmail={purchaseOrder.supplier?.email}
+                            recipientKind="supplier"
+                        />
                     </div>
                 </div>
 

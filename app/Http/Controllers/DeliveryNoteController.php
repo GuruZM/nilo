@@ -6,6 +6,7 @@ use App\Models\DeliveryNote;
 use App\Models\Invoice;
 use App\Services\DocumentRenderer;
 use App\Services\Documents\CreateDeliveryNoteFromInvoice;
+use App\Services\Documents\SendDocumentToCounterparty;
 use App\Support\DocumentRules;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -18,6 +19,7 @@ class DeliveryNoteController extends Controller
     public function __construct(
         private DocumentRenderer $documents,
         private CreateDeliveryNoteFromInvoice $creator,
+        private SendDocumentToCounterparty $sender,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -159,6 +161,18 @@ class DeliveryNoteController extends Controller
         $deliveryNote->update($data);
 
         return back()->with('success', 'Delivery note updated.');
+    }
+
+    /**
+     * Emails the delivery note to its client, with the PDF attached.
+     */
+    public function send(Request $request, DeliveryNote $deliveryNote): RedirectResponse
+    {
+        abort_unless((int) $deliveryNote->company_id === $this->companyId($request), 403);
+
+        $result = $this->sender->handle($deliveryNote);
+
+        return back()->with($result['sent'] ? 'success' : 'error', $result['message']);
     }
 
     public function preview(Request $request, DeliveryNote $deliveryNote)

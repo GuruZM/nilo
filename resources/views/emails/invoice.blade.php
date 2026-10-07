@@ -41,12 +41,14 @@
                                 <tr>
                                     <td style="padding:20px 24px;">
                                         <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-                                            <tr>
-                                                <td style="padding:0 0 10px;color:#8494a7;font-size:13px;">{{ $amountLabel ?? 'Amount due' }}</td>
-                                                <td align="right" style="padding:0 0 10px;color:#001d3a;font-size:18px;font-weight:700;">
-                                                    {{ $totalFormatted }}
-                                                </td>
-                                            </tr>
+                                            @if($totalFormatted)
+                                                <tr>
+                                                    <td style="padding:0 0 10px;color:#8494a7;font-size:13px;">{{ $amountLabel ?? 'Amount due' }}</td>
+                                                    <td align="right" style="padding:0 0 10px;color:#001d3a;font-size:18px;font-weight:700;">
+                                                        {{ $totalFormatted }}
+                                                    </td>
+                                                </tr>
+                                            @endif
                                             <tr>
                                                 <td style="padding:0 0 10px;color:#8494a7;font-size:13px;">Issued</td>
                                                 <td align="right" style="padding:0 0 10px;color:#3d4a5c;font-size:14px;">

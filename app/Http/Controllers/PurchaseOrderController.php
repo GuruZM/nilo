@@ -7,6 +7,7 @@ use App\Models\PurchaseOrder;
 use App\Models\Supplier;
 use App\Services\DocumentRenderer;
 use App\Services\Documents\CreatePurchaseOrder;
+use App\Services\Documents\SendDocumentToCounterparty;
 use App\Services\SubscriptionLimitService;
 use App\Support\DocumentRules;
 use Illuminate\Http\RedirectResponse;
@@ -32,6 +33,7 @@ class PurchaseOrderController extends Controller
     public function __construct(
         private DocumentRenderer $documents,
         private CreatePurchaseOrder $creator,
+        private SendDocumentToCounterparty $sender,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -215,6 +217,18 @@ class PurchaseOrderController extends Controller
         $purchaseOrder->update(['status' => $data['status']]);
 
         return back()->with('success', 'Purchase order is now '.$data['status'].'.');
+    }
+
+    /**
+     * Emails the purchase order to its supplier, with the PDF attached.
+     */
+    public function send(Request $request, PurchaseOrder $purchaseOrder): RedirectResponse
+    {
+        abort_unless((int) $purchaseOrder->company_id === $this->companyId($request), 403);
+
+        $result = $this->sender->handle($purchaseOrder);
+
+        return back()->with($result['sent'] ? 'success' : 'error', $result['message']);
     }
 
     public function preview(Request $request, PurchaseOrder $purchaseOrder)
