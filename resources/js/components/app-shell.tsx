@@ -1,13 +1,20 @@
 import { SidebarProvider } from '@/components/ui/sidebar';
+import { cn } from '@/lib/utils';
 import { SharedData } from '@/types/index.d';
 import { usePage } from '@inertiajs/react';
 
 interface AppShellProps {
     children: React.ReactNode;
     variant?: 'header' | 'sidebar';
+    /** Drops the centred 4/5 column so the shell spans the viewport. */
+    fullWidth?: boolean;
 }
 
-export function AppShell({ children, variant = 'header' }: AppShellProps) {
+export function AppShell({
+    children,
+    variant = 'header',
+    fullWidth = false,
+}: AppShellProps) {
     const isOpen = usePage<SharedData>().props.sidebarOpen;
 
     if (variant === 'header') {
@@ -21,7 +28,7 @@ export function AppShell({ children, variant = 'header' }: AppShellProps) {
             <SidebarProvider
                 defaultOpen={isOpen}
                 style={{ '--sidebar-width': '17rem' } as React.CSSProperties}
-                className="bg-canvas md:mx-auto md:w-4/5"
+                className={cn('bg-canvas', !fullWidth && 'md:mx-auto md:w-4/5')}
             >
                 {children}
             </SidebarProvider>

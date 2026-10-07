@@ -7,6 +7,7 @@ import {
     InputOTPGroup,
     InputOTPSlot,
 } from '@/components/ui/input-otp';
+import { Label } from '@/components/ui/label';
 import { OTP_MAX_LENGTH } from '@/hooks/use-two-factor-auth';
 import AuthLayout from '@/layouts/auth-layout';
 import { store } from '@/routes/two-factor/login';
@@ -63,18 +64,24 @@ export default function TwoFactorChallenge() {
                     {({ errors, processing, clearErrors }) => (
                         <>
                             {showRecoveryInput ? (
-                                <>
+                                <div className="grid gap-2">
+                                    <Label
+                                        htmlFor="recovery_code"
+                                        className="font-medium"
+                                    >
+                                        Recovery code
+                                    </Label>
                                     <Input
+                                        id="recovery_code"
                                         name="recovery_code"
                                         type="text"
-                                        placeholder="Enter recovery code"
                                         autoFocus={showRecoveryInput}
                                         required
                                     />
                                     <InputError
                                         message={errors.recovery_code}
                                     />
-                                </>
+                                </div>
                             ) : (
                                 <div className="flex flex-col items-center justify-center space-y-3 text-center">
                                     <div className="flex w-full items-center justify-center">

@@ -10,8 +10,11 @@ import { type BreadcrumbItem as BreadcrumbItemType } from '@/types/index.d';
 
 export function AppSidebarHeader({
     breadcrumbs = [],
+    fullWidth = false,
 }: {
     breadcrumbs?: BreadcrumbItemType[];
+    /** Must match the content column below, or the card edges drift apart. */
+    fullWidth?: boolean;
 }) {
     const page = usePage<SharedData>();
     const { toggleSidebar } = useSidebar();
@@ -20,7 +23,12 @@ export function AppSidebarHeader({
     const hasBreadcrumbs = breadcrumbs.length > 0;
 
     return (
-        <header className="mx-auto w-full max-w-[1400px] px-3 pt-2 pb-3">
+        <header
+            className={cn(
+                'mx-auto w-full px-3 pt-2 pb-3',
+                !fullWidth && 'max-w-[1400px]',
+            )}
+        >
             <div
                 className={cn(
                     'flex h-14 items-center justify-between gap-3 rounded-2xl bg-card px-2 sm:px-3',

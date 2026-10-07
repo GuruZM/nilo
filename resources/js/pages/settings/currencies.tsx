@@ -525,7 +525,6 @@ function RateRowItem({ row }: { row: RateRow }) {
                         inputMode="decimal"
                         value={value}
                         onChange={(e) => setValue(e.target.value)}
-                        placeholder="—"
                         aria-label={`Manual rate for ${row.code}`}
                         className="h-8 w-28 tabular-nums"
                     />

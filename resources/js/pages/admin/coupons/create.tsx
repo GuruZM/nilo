@@ -24,7 +24,7 @@ export default function CouponCreate({
         <AppSidebarLayout breadcrumbs={breadcrumbs}>
             <Head title="Admin - New coupon" />
 
-            <div className="mx-auto flex w-full max-w-[1400px] flex-col gap-4 px-3 py-6">
+            <div className="flex w-full flex-col gap-4 py-6">
                 <CouponForm currencies={currencies} plans={plans} />
             </div>
         </AppSidebarLayout>

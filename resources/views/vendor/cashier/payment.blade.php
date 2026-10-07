@@ -106,7 +106,7 @@
 
                         <input
                             id="name"
-                            type="text" placeholder="Jane Doe"
+                            type="text"
                             required
                             class="inline-block bg-gray-100 border border-gray-300 rounded-lg w-full px-4 py-3 mb-3 focus:outline-none"
                             v-model="name"
@@ -119,7 +119,7 @@
 
                         <input
                             id="email"
-                            type="text" placeholder="jane@example.com"
+                            type="text"
                             required
                             class="inline-block bg-gray-100 border border-gray-300 rounded-lg w-full px-4 py-3 mb-3 focus:outline-none"
                             v-model="email"

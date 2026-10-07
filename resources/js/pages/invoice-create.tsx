@@ -58,7 +58,7 @@ export default function InvoiceBuilder() {
                     {items.map((item, idx) => (
                         <div key={idx} className="mb-2 flex gap-2">
                             <input
-                                placeholder="Description"
+                                aria-label="Description"
                                 value={item.description}
                                 onChange={(e) =>
                                     updateItem(

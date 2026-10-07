@@ -222,7 +222,7 @@ const backToAppNavItems: NavItem[] = [
  * super admin who also runs a company still gets the full tenant rail
  * everywhere outside /admin.
  */
-const isAdminPath = (url: string): boolean => {
+export const isAdminPath = (url: string): boolean => {
     const path = url.split('?')[0];
 
     return path === '/admin' || path.startsWith('/admin/');
@@ -235,7 +235,7 @@ const panelClass = cn(
     'dark:shadow-none dark:ring-1 dark:ring-white/10',
 );
 
-export function AppSidebar() {
+export function AppSidebar({ fullWidth = false }: { fullWidth?: boolean }) {
     const page = usePage<SharedData>();
     const { auth, subscription } = page.props;
     const isAdmin = auth?.roles?.includes('super-admin');
@@ -251,7 +251,9 @@ export function AppSidebar() {
             className={cn(
                 // pt-4 (vs the variant's default p-2) lines the panel's top edge
                 // up with the floating top bar, which sits at m-2 + mt-2.
-                'md:left-[10%] md:h-fit md:pt-4',
+                'md:h-fit md:pt-4',
+                // 10% is the left gutter the shell's centred 4/5 column leaves.
+                !fullWidth && 'md:left-[10%]',
                 // The rail itself is only a column: each block below carries its
                 // own panel so they read as detached cards, not one sidebar.
                 '[&>[data-sidebar=sidebar]]:gap-3 [&>[data-sidebar=sidebar]]:border-none',

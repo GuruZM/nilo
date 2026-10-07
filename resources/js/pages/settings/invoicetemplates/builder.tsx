@@ -246,34 +246,13 @@ const DEFAULT_SETTINGS: TemplateSettings = {
 const BANK_FIELDS: Array<{
     key: keyof TemplateSettings['bank'];
     label: string;
-    placeholder: string;
     maxLength: number;
 }> = [
-    { key: 'name', label: 'Bank', placeholder: 'e.g. Zanaco', maxLength: 120 },
-    {
-        key: 'account_name',
-        label: 'Account name',
-        placeholder: 'As registered with the bank',
-        maxLength: 120,
-    },
-    {
-        key: 'account_number',
-        label: 'Account number',
-        placeholder: 'e.g. 0012345678901',
-        maxLength: 60,
-    },
-    {
-        key: 'branch',
-        label: 'Branch',
-        placeholder: 'e.g. Cairo Road',
-        maxLength: 120,
-    },
-    {
-        key: 'swift_code',
-        label: 'SWIFT code',
-        placeholder: 'For international transfers',
-        maxLength: 20,
-    },
+    { key: 'name', label: 'Bank', maxLength: 120 },
+    { key: 'account_name', label: 'Account name', maxLength: 120 },
+    { key: 'account_number', label: 'Account number', maxLength: 60 },
+    { key: 'branch', label: 'Branch', maxLength: 120 },
+    { key: 'swift_code', label: 'SWIFT code', maxLength: 20 },
 ];
 
 /** The filled bank fields, labelled, in the order the printed sheet lists them. */
@@ -408,7 +387,7 @@ export default function InvoiceTemplateBuilder({
             (module.type === 'quotation'
                 ? 'Quotation valid for 7 days.'
                 : 'Payment due within 7 days.'),
-        footer_html: template?.footer_html ?? 'Powered by Nilo',
+        footer_html: template?.footer_html ?? '',
     });
 
     const settings = form.data.settings;
@@ -1106,9 +1085,6 @@ export default function InvoiceTemplateBuilder({
                                                                                 .value,
                                                                         )
                                                                     }
-                                                                    placeholder={
-                                                                        field.placeholder
-                                                                    }
                                                                     maxLength={
                                                                         field.maxLength
                                                                     }
@@ -1160,7 +1136,6 @@ export default function InvoiceTemplateBuilder({
                                                                         .value,
                                                                 )
                                                             }
-                                                            placeholder="https://www.example.com"
                                                             className="rounded-xl"
                                                         />
                                                         <p className="text-xs text-muted-foreground">
@@ -1207,7 +1182,6 @@ export default function InvoiceTemplateBuilder({
                                                                         .value,
                                                                 )
                                                             }
-                                                            placeholder="Printed under your company name"
                                                             className="rounded-xl"
                                                         />
                                                     </div>

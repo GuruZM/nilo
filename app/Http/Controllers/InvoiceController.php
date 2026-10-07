@@ -220,7 +220,6 @@ class InvoiceController extends Controller
             'terms' => ['nullable', 'string'],
             'invoice_discount' => ['nullable', 'numeric', 'min:0'],
             'tax_percent' => ['nullable', 'numeric', 'min:0', 'max:100'],
-
             'items' => ['required', 'array', 'min:1'],
             'items.*.description' => ['required', 'string', 'max:255'],
             'items.*.unit' => ['nullable', 'string', 'max:50'],

@@ -247,7 +247,6 @@ export default function Payment({
                                     reprice(code.trim());
                                 }
                             }}
-                            placeholder="e.g. LAUNCH20"
                             className={cn(fieldInputClass, 'uppercase')}
                         />
                         <PillButton

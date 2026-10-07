@@ -283,3 +283,33 @@ test('the account settings pages are built from the dashboard panel primitives',
         ->toContain('<SoftTile')
         ->not->toContain('@/components/ui/card');
 });
+
+test('the admin section drops the w-4/5 shell and the content cap so it runs full width', function () {
+    $root = __DIR__.'/../../resources/js';
+    $layout = file_get_contents($root.'/layouts/app/app-sidebar-layout.tsx');
+
+    // One decision, made from the same path test that switches the rail into
+    // admin mode, then handed to every piece of the shell.
+    expect($layout)
+        ->toContain("import { AppSidebar, isAdminPath } from '@/components/app-sidebar';")
+        ->toContain('const fullWidth = isAdminPath(usePage().url);')
+        ->toContain('<AppShell variant="sidebar" fullWidth={fullWidth}>')
+        ->toContain('<AppSidebar fullWidth={fullWidth} />')
+        ->toContain('fullWidth={fullWidth}')
+        ->toContain("!fullWidth && 'max-w-[1400px]'");
+
+    expect(file_get_contents($root.'/components/app-sidebar.tsx'))
+        ->toContain('export const isAdminPath = (url: string): boolean => {')
+        ->toContain("!fullWidth && 'md:left-[10%]'");
+
+    expect(file_get_contents($root.'/components/app-shell.tsx'))
+        ->toContain("!fullWidth && 'md:mx-auto md:w-4/5'");
+
+    // The header repeats the content column's cap so the card edges line up.
+    expect(file_get_contents($root.'/components/app-sidebar-header.tsx'))
+        ->toContain("!fullWidth && 'max-w-[1400px]'");
+
+    foreach (glob($root.'/pages/admin/{*.tsx,*/*.tsx}', GLOB_BRACE) as $page) {
+        expect(file_get_contents($page))->not->toContain('max-w-[1400px]');
+    }
+});

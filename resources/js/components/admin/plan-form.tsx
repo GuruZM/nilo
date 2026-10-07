@@ -414,7 +414,6 @@ export function PlanForm({
                                     setFeature(index, e.target.value)
                                 }
                                 className={fieldInputClass}
-                                placeholder="Unlimited invoices"
                                 aria-label={`Feature ${index + 1}`}
                             />
                             <IconButton
