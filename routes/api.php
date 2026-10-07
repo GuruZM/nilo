@@ -99,6 +99,9 @@ Route::prefix('v1')->name('api.v1.')->group(function () {
                 Route::post('/{invoice}/status', [InvoiceController::class, 'updateStatus'])->name('status');
                 Route::get('/{invoice}/pdf', [InvoiceController::class, 'pdf'])->name('pdf');
 
+                /** Chasing payment from the phone, rather than only at creation. */
+                Route::post('/{invoice}/send', [InvoiceController::class, 'send'])->name('send');
+
                 /** Money received, and the receipt it prints as. */
                 Route::get('/{invoice}/payments', [InvoicePaymentController::class, 'index'])->name('payments.index');
                 Route::post('/{invoice}/payments', [InvoicePaymentController::class, 'store'])->name('payments.store');

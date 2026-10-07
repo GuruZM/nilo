@@ -87,6 +87,9 @@ type Invoice = {
         contact_person?: string | null;
     };
     items: InvoiceItem[];
+
+    /** Set only when this invoice was raised from a quotation. */
+    quotation?: { id: number; number: string | null } | null;
 };
 
 export default function InvoiceShow({
@@ -326,6 +329,22 @@ export default function InvoiceShow({
                                 label="Reference"
                                 value={invoice.reference ?? '—'}
                             />
+
+                            {/* Only on an invoice that was billed from a quote. */}
+                            {invoice.quotation && (
+                                <Info
+                                    label="From quotation"
+                                    value={
+                                        <Link
+                                            href={`/quotations/${invoice.quotation.id}`}
+                                            className="underline underline-offset-4 hover:no-underline"
+                                        >
+                                            {invoice.quotation.number ??
+                                                `Quotation #${invoice.quotation.id}`}
+                                        </Link>
+                                    }
+                                />
+                            )}
                         </div>
 
                         <div className="-mx-1 mt-5 overflow-x-auto px-1">
@@ -705,7 +724,7 @@ const cellClass = cn(
     'group-hover:bg-brand-50/70 dark:group-hover:bg-brand-500/10',
 );
 
-function Info({ label, value }: { label: string; value: string }) {
+function Info({ label, value }: { label: string; value: React.ReactNode }) {
     return (
         <SoftTile>
             <div className="text-xs text-muted-foreground">{label}</div>

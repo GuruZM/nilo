@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Mail\InvoiceToClient;
 use App\Models\Client;
 use App\Models\Company;
 use App\Models\Currency;
@@ -11,6 +10,7 @@ use App\Models\InvoicePayment;
 use App\Models\InvoiceTemplate;
 use App\Services\DocumentPrerequisites;
 use App\Services\Documents\CreateInvoice;
+use App\Services\Documents\SendInvoiceToClient;
 use App\Services\InvoiceDocumentRenderer;
 use App\Services\InvoiceSettlement;
 use App\Services\SubscriptionLimitService;
@@ -18,7 +18,6 @@ use App\Support\DocumentRules;
 use App\Support\DocumentTotals;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\View;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\Exists;
@@ -31,6 +30,7 @@ class InvoiceController extends Controller
         private InvoiceDocumentRenderer $documents,
         private InvoiceSettlement $settlement,
         private CreateInvoice $creator,
+        private SendInvoiceToClient $sender,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -464,7 +464,7 @@ class InvoiceController extends Controller
 
             $invoice = $this->creator->handle($companyId, $user, $data);
 
-            $delivery = $this->deliverToClient($invoice, (bool) ($data['send_to_client'] ?? false));
+            $delivery = $this->sender->afterCreate($invoice, (bool) ($data['send_to_client'] ?? false));
 
             // ✅ Inertia-friendly redirect with flash (this is what makes onSuccess + global flash work)
             return redirect("/invoices/{$invoice->id}")
@@ -482,54 +482,6 @@ class InvoiceController extends Controller
             throw ValidationException::withMessages([
                 'invoice' => 'Failed to create invoice. Please try again.',
             ]);
-        }
-    }
-
-    /**
-     * Queues the invoice to its client when the creator asked for it. The
-     * invoice is already saved by this point, so nothing here may throw — a
-     * delivery problem downgrades the flash message rather than losing work.
-     *
-     * @return array{level: string, message: string}
-     */
-    private function deliverToClient(Invoice $invoice, bool $requested): array
-    {
-        if (! $requested) {
-            return ['level' => 'success', 'message' => 'Invoice created.'];
-        }
-
-        $invoice->loadMissing(['client', 'company']);
-        $email = trim((string) $invoice->client?->email);
-
-        if ($email === '') {
-            return [
-                'level' => 'info',
-                'message' => 'Invoice created, but it was not emailed because the client has no email address.',
-            ];
-        }
-
-        try {
-            Mail::to($email)->send(new InvoiceToClient($invoice));
-
-            /** An emailed invoice is no longer merely pending. */
-            if ($invoice->status === 'pending') {
-                $invoice->update(['status' => 'sent']);
-            }
-
-            return [
-                'level' => 'success',
-                'message' => 'Invoice created and queued to '.$email.'.',
-            ];
-        } catch (\Throwable $e) {
-            Log::error('Invoice email failed', [
-                'invoice_id' => $invoice->id,
-                'error' => $e->getMessage(),
-            ]);
-
-            return [
-                'level' => 'info',
-                'message' => 'Invoice created, but the email could not be sent. You can send it again from the invoice.',
-            ];
         }
     }
 
@@ -582,6 +534,7 @@ class InvoiceController extends Controller
             'client:id,company_id,name,email,contact_person',
             'items',
             'payments.recorder:id,name',
+            'quotation:id,number',
         ]);
 
         return Inertia::render('Invoices/show', [
@@ -615,6 +568,11 @@ class InvoiceController extends Controller
 
                 'client' => $invoice->client,
                 'items' => $invoice->items,
+
+                /** Present only on an invoice raised from a quotation. */
+                'quotation' => $invoice->quotation
+                    ? ['id' => $invoice->quotation->id, 'number' => $invoice->quotation->number]
+                    : null,
 
                 'amount_paid' => $this->settlement->amountPaid($invoice),
                 'balance_due' => $this->settlement->balanceDue($invoice),

@@ -1,4 +1,8 @@
 {{-- resources/views/invoices/templates/default.blade.php --}}
+{{-- A preset with its own layout takes over the whole sheet; everything below is Wave and its colour variants. --}}
+@if(data_get($settings ?? [], 'preset') === 'meridian')
+@include('invoices.templates.presets.meridian')
+@else
 @php
     /**
      * Resolved before the document opens because the <title> needs it too, and
@@ -840,3 +844,4 @@
 </script>
 </body>
 </html>
+@endif

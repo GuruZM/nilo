@@ -6,6 +6,7 @@ use App\Models\Concerns\FreezesExchangeRate;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Invoice extends Model
@@ -40,6 +41,7 @@ class Invoice extends Model
     protected $fillable = [
         'company_id',
         'client_id',
+        'quotation_id',
         'invoice_template_id',
         'created_by',
         'number',
@@ -132,6 +134,14 @@ class Invoice extends Model
     public function company()
     {
         return $this->belongsTo(Company::class);
+    }
+
+    /**
+     * The quotation this invoice was raised from, if any.
+     */
+    public function quotation(): BelongsTo
+    {
+        return $this->belongsTo(Quotation::class);
     }
 
     public function template()

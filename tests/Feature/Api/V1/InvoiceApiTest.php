@@ -1,11 +1,13 @@
 <?php
 
+use App\Mail\InvoiceToClient;
 use App\Models\Client;
 use App\Models\Company;
 use App\Models\Currency;
 use App\Models\DeliveryNote;
 use App\Models\Invoice;
 use App\Models\InvoiceTemplate;
+use Illuminate\Support\Facades\Mail;
 
 beforeEach(function () {
     Currency::query()->updateOrCreate(['code' => 'ZMW'], [
@@ -370,6 +372,98 @@ it('rejects a delivery status it does not use', function () {
         ->patchJson(route('api.v1.delivery-notes.update', $note), ['status' => 'teleported'])
         ->assertStatus(422)
         ->assertJsonValidationErrors('status');
+});
+
+/* ------------------------------------------------------------- Sending -- */
+
+it('emails an invoice to its client and marks it sent', function () {
+    Mail::fake();
+
+    [$user, $client] = apiContext('accounts@urbanmasai.co.zm');
+
+    $invoice = Invoice::factory()->create([
+        'company_id' => $user->current_company_id,
+        'client_id' => $client->id,
+        'status' => 'pending',
+    ]);
+
+    $this->withHeaders(apiHeaders($user))
+        ->postJson(route('api.v1.invoices.send', $invoice))
+        ->assertSuccessful()
+        /** An emailed invoice is no longer merely pending. */
+        ->assertJsonPath('data.status', 'sent')
+        ->assertJsonPath('message', 'Invoice queued to accounts@urbanmasai.co.zm.');
+
+    Mail::assertQueued(
+        InvoiceToClient::class,
+        fn (InvoiceToClient $mail) => $mail->hasTo('accounts@urbanmasai.co.zm')
+            && $mail->invoice->is($invoice),
+    );
+});
+
+it('refuses to send an invoice whose client has no email address', function () {
+    Mail::fake();
+
+    // apiContext() leaves the client's email null unless one is named.
+    [$user, $client] = apiContext();
+
+    $invoice = Invoice::factory()->create([
+        'company_id' => $user->current_company_id,
+        'client_id' => $client->id,
+        'status' => 'pending',
+    ]);
+
+    $this->withHeaders(apiHeaders($user))
+        ->postJson(route('api.v1.invoices.send', $invoice))
+        ->assertStatus(422)
+        ->assertJsonPath('error', 'not_deliverable');
+
+    Mail::assertNothingQueued();
+
+    /** Nothing was sent, so nothing may claim it was. */
+    expect($invoice->fresh()->status)->toBe('pending');
+});
+
+it('leaves a settled invoice settled when it is emailed again', function () {
+    Mail::fake();
+
+    [$user, $client] = apiContext('accounts@urbanmasai.co.zm');
+
+    $invoice = Invoice::factory()->create([
+        'company_id' => $user->current_company_id,
+        'client_id' => $client->id,
+        'status' => 'paid',
+    ]);
+
+    $this->withHeaders(apiHeaders($user))
+        ->postJson(route('api.v1.invoices.send', $invoice))
+        ->assertSuccessful()
+        /** Only `pending` is promoted; sending a receipt-worthy invoice is fine. */
+        ->assertJsonPath('data.status', 'paid');
+
+    Mail::assertQueued(InvoiceToClient::class);
+});
+
+it('never sends another company\'s invoice', function () {
+    Mail::fake();
+
+    [$user] = apiContext('accounts@urbanmasai.co.zm');
+
+    $stranger = Company::factory()->create();
+    $strangerClient = Client::factory()->create([
+        'company_id' => $stranger->id,
+        'email' => 'someone@else.test',
+    ]);
+    $invoice = Invoice::factory()->create([
+        'company_id' => $stranger->id,
+        'client_id' => $strangerClient->id,
+    ]);
+
+    $this->withHeaders(apiHeaders($user))
+        ->postJson(route('api.v1.invoices.send', $invoice))
+        ->assertForbidden();
+
+    Mail::assertNothingQueued();
 });
 
 /* --------------------------------------------------------------- Helpers -- */

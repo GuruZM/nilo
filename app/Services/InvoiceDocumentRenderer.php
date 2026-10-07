@@ -43,6 +43,11 @@ class InvoiceDocumentRenderer
                 'show_notes' => true,
                 'show_bank_details' => false,
                 'show_signature' => false,
+                'show_qr' => true,
+            ],
+            'content' => [
+                'qr_url' => '',
+                'tagline' => '',
             ],
         ];
     }

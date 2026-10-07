@@ -179,6 +179,11 @@ Route::middleware(['auth', 'verified', 'subscribed'])->group(function () {
             ->whereNumber('quotation')
             ->name('status');
 
+        // The invoice that bills this quotation
+        Route::post('/{quotation}/invoice', [\App\Http\Controllers\QuotationController::class, 'storeInvoice'])
+            ->whereNumber('quotation')
+            ->name('invoice.store');
+
         Route::get('/{quotation}/preview', [\App\Http\Controllers\QuotationController::class, 'preview'])
             ->whereNumber('quotation')
             ->name('preview');

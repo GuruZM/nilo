@@ -308,13 +308,23 @@ class InvoiceTemplateController extends Controller
 
     private function validateTemplateRequest(Request $request): array
     {
-        return $request->validate([
+        $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'is_default' => ['sometimes', 'boolean'],
             'settings' => ['nullable', 'array'],
+            'settings.content.qr_url' => ['nullable', 'string', 'max:500'],
+            'settings.content.tagline' => ['nullable', 'string', 'max:120'],
             'terms_html' => ['nullable', 'string'],
             'footer_html' => ['nullable', 'string'],
         ]);
+
+        /**
+         * Rules on a few nested keys make validated() keep only those keys, which
+         * would silently drop the rest of the settings (preset, brand, layout…).
+         */
+        $data['settings'] = $request->has('settings') ? (array) $request->input('settings') : null;
+
+        return $data;
     }
 
     private function normalizedSettings(array $incomingSettings, array $existingSettings = []): array
@@ -326,8 +336,27 @@ class InvoiceTemplateController extends Controller
             $defaults['visibility'],
             array_map(fn ($value) => (bool) $value, (array) ($settings['visibility'] ?? []))
         );
+        $settings['content'] = [
+            'qr_url' => $this->qrLink((string) ($settings['content']['qr_url'] ?? '')),
+            'tagline' => trim((string) ($settings['content']['tagline'] ?? '')),
+        ];
 
         return $settings;
+    }
+
+    /**
+     * A bare "example.com" would encode as plain text and phones would show it
+     * rather than open it, so anything without a scheme is assumed to be a site.
+     */
+    private function qrLink(string $value): string
+    {
+        $value = trim($value);
+
+        if ($value === '' || preg_match('/^[a-z][a-z0-9+.\-]*:/i', $value) === 1) {
+            return $value;
+        }
+
+        return 'https://'.$value;
     }
 
     private function matchesTemplateType(InvoiceTemplate $template, int $companyId, string $templateType): bool
@@ -382,8 +411,10 @@ class InvoiceTemplateController extends Controller
      *         show_terms: bool,
      *         show_notes: bool,
      *         show_bank_details: bool,
-     *         show_signature: bool
-     *     }
+     *         show_signature: bool,
+     *         show_qr: bool
+     *     },
+     *     content: array{qr_url: string, tagline: string}
      * }
      */
     private function templateDefaults(): array
@@ -409,6 +440,11 @@ class InvoiceTemplateController extends Controller
                 'show_notes' => true,
                 'show_bank_details' => false,
                 'show_signature' => false,
+                'show_qr' => true,
+            ],
+            'content' => [
+                'qr_url' => '',
+                'tagline' => '',
             ],
         ];
     }

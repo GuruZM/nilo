@@ -9,6 +9,7 @@ use App\Models\Currency;
 use App\Models\InvoiceTemplate;
 use App\Models\Quotation;
 use App\Services\DocumentPrerequisites;
+use App\Services\Documents\CreateInvoiceFromQuotation;
 use App\Services\Documents\CreateQuotation;
 use App\Services\QuotationDocumentRenderer;
 use App\Services\SubscriptionLimitService;
@@ -31,6 +32,7 @@ class QuotationController extends Controller
     public function __construct(
         private QuotationDocumentRenderer $documents,
         private CreateQuotation $creator,
+        private CreateInvoiceFromQuotation $invoicer,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -462,11 +464,20 @@ class QuotationController extends Controller
         $quotation->load([
             'client:id,company_id,name,email,contact_person',
             'items',
+            'invoice:id,quotation_id,number',
         ]);
 
         return Inertia::render('Quotations/show', [
             /** Only true on the redirect straight after creating it. */
             'justCreated' => (bool) $request->session()->get('quotation_created', false),
+
+            /** Set when a plan limit refused the invoice this page tried to raise. */
+            'limitNotice' => $request->session()->get('limit_notice'),
+
+            /** Present once this quotation has been billed, so the page links to it. */
+            'invoice' => $quotation->invoice
+                ? ['id' => $quotation->invoice->id, 'number' => $quotation->invoice->number]
+                : null,
 
             'quotation' => [
                 'id' => $quotation->id,
@@ -497,6 +508,41 @@ class QuotationController extends Controller
                 'items' => $quotation->items,
             ],
         ]);
+    }
+
+    /**
+     * Raises the invoice that bills this quotation, and lands on it.
+     *
+     * A quotation that has already been invoiced is not an error worth
+     * shouting about — the second click is almost always an impatient one, so
+     * it redirects to the invoice that already exists.
+     */
+    public function storeInvoice(Request $request, Quotation $quotation): RedirectResponse
+    {
+        $companyId = $this->companyId($request);
+
+        abort_unless((int) $quotation->company_id === $companyId, 403);
+
+        $existing = $quotation->invoice()->first();
+
+        if ($existing) {
+            return redirect()
+                ->route('invoices.show', $existing)
+                ->with('info', 'This quotation was already invoiced as '.$existing->number.'.');
+        }
+
+        $user = $request->user();
+        $limiter = new SubscriptionLimitService($user);
+
+        if (! $limiter->canCreateInvoice($companyId)) {
+            return back()->with('limit_notice', $limiter->limitNotice('invoices'));
+        }
+
+        $invoice = $this->invoicer->handle($companyId, $user, $quotation);
+
+        return redirect()
+            ->route('invoices.show', $invoice)
+            ->with('success', 'Invoice '.$invoice->number.' created from '.$quotation->number.'.');
     }
 
     public function updateStatus(Request $request, Quotation $quotation): RedirectResponse

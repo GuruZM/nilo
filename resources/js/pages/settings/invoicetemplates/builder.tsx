@@ -47,7 +47,8 @@ type TemplateSettings = {
         | 'modern_minimal'
         | 'classic_business'
         | 'bold_header'
-        | 'wave_premium';
+        | 'wave_premium'
+        | 'meridian';
     brand: {
         primary: string;
         accent: string;
@@ -67,6 +68,11 @@ type TemplateSettings = {
         show_notes: boolean;
         show_bank_details: boolean;
         show_signature: boolean;
+        show_qr: boolean;
+    };
+    content: {
+        qr_url: string;
+        tagline: string;
     };
 };
 
@@ -136,6 +142,21 @@ const PRESETS: Array<{
         },
     },
     {
+        id: 'meridian',
+        name: 'Meridian',
+        description:
+            'Side panel with a QR code, oversized title and a carded item table.',
+        defaults: {
+            brand: {
+                primary: '#2B2D33',
+                accent: '#5570A2',
+                header: '#073F7A',
+                font: 'Inter',
+            },
+            layout: { header: 'split', table: 'lined', density: 'normal' },
+        },
+    },
+    {
         id: 'modern_minimal',
         name: 'Modern Minimal',
         description: 'Clean, modern look. Great default.',
@@ -196,7 +217,9 @@ const DEFAULT_SETTINGS: TemplateSettings = {
         show_notes: true,
         show_bank_details: false,
         show_signature: false,
+        show_qr: true,
     },
+    content: { qr_url: '', tagline: '' },
 };
 
 // sample preview data (updated to include bank + signature)
@@ -299,6 +322,7 @@ export default function InvoiceTemplateBuilder({
                 ...DEFAULT_SETTINGS.visibility,
                 ...(s.visibility ?? {}),
             },
+            content: { ...DEFAULT_SETTINGS.content, ...(s.content ?? {}) },
         };
     }, [template]);
 
@@ -337,6 +361,7 @@ export default function InvoiceTemplateBuilder({
                 ...DEFAULT_SETTINGS.visibility,
                 ...settings.visibility,
             },
+            content: { ...DEFAULT_SETTINGS.content, ...settings.content },
         };
 
         form.setData('settings', next);
@@ -369,6 +394,16 @@ export default function InvoiceTemplateBuilder({
         form.setData('settings', {
             ...settings,
             visibility: { ...settings.visibility, [key]: v },
+        });
+    };
+
+    const setContent = <K extends keyof TemplateSettings['content']>(
+        key: K,
+        v: string,
+    ) => {
+        form.setData('settings', {
+            ...settings,
+            content: { ...settings.content, [key]: v },
         });
     };
 
@@ -902,6 +937,100 @@ export default function InvoiceTemplateBuilder({
                                             />
                                         </div>
 
+                                        {settings.preset === 'meridian' && (
+                                            <>
+                                                <Separator />
+
+                                                <div className="space-y-3">
+                                                    <div className="text-sm font-semibold">
+                                                        Meridian
+                                                    </div>
+
+                                                    <ToggleRow
+                                                        label="Show QR code"
+                                                        checked={
+                                                            settings.visibility
+                                                                .show_qr
+                                                        }
+                                                        onChange={(v) =>
+                                                            setVisibility(
+                                                                'show_qr',
+                                                                v,
+                                                            )
+                                                        }
+                                                    />
+
+                                                    <div className="space-y-2">
+                                                        <Label>
+                                                            QR code link
+                                                        </Label>
+                                                        <Input
+                                                            value={
+                                                                settings.content
+                                                                    .qr_url
+                                                            }
+                                                            onChange={(e) =>
+                                                                setContent(
+                                                                    'qr_url',
+                                                                    e.target
+                                                                        .value,
+                                                                )
+                                                            }
+                                                            placeholder="https://www.example.com"
+                                                            className="rounded-xl"
+                                                        />
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Scanning the code
+                                                            opens this link.
+                                                            Leave it empty to
+                                                            show your logo
+                                                            instead.
+                                                        </p>
+                                                        {(
+                                                            form.errors as Record<
+                                                                string,
+                                                                string
+                                                            >
+                                                        )[
+                                                            'settings.content.qr_url'
+                                                        ] && (
+                                                            <p className="text-sm text-destructive">
+                                                                {
+                                                                    (
+                                                                        form.errors as Record<
+                                                                            string,
+                                                                            string
+                                                                        >
+                                                                    )[
+                                                                        'settings.content.qr_url'
+                                                                    ]
+                                                                }
+                                                            </p>
+                                                        )}
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <Label>Tagline</Label>
+                                                        <Input
+                                                            value={
+                                                                settings.content
+                                                                    .tagline
+                                                            }
+                                                            onChange={(e) =>
+                                                                setContent(
+                                                                    'tagline',
+                                                                    e.target
+                                                                        .value,
+                                                                )
+                                                            }
+                                                            placeholder="Printed under your company name"
+                                                            className="rounded-xl"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            </>
+                                        )}
+
                                         <Separator />
 
                                         <div className="space-y-2">
@@ -1073,15 +1202,27 @@ export default function InvoiceTemplateBuilder({
                         </div>
 
                         <div className="flex-1">
-                            <A4PreviewPremium
-                                documentNumberLabel={documentNumberLabel}
-                                documentNumberValue={documentNumberValue}
-                                documentTitle={documentTitle}
-                                documentType={module.type}
-                                settings={settings}
-                                terms={form.data.terms_html}
-                                footer={form.data.footer_html}
-                            />
+                            {settings.preset === 'meridian' ? (
+                                <A4PreviewMeridian
+                                    documentNumberLabel={documentNumberLabel}
+                                    documentNumberValue={documentNumberValue}
+                                    documentTitle={documentTitle}
+                                    documentType={module.type}
+                                    settings={settings}
+                                    terms={form.data.terms_html}
+                                    footer={form.data.footer_html}
+                                />
+                            ) : (
+                                <A4PreviewPremium
+                                    documentNumberLabel={documentNumberLabel}
+                                    documentNumberValue={documentNumberValue}
+                                    documentTitle={documentTitle}
+                                    documentType={module.type}
+                                    settings={settings}
+                                    terms={form.data.terms_html}
+                                    footer={form.data.footer_html}
+                                />
+                            )}
                         </div>
                     </Panel>
                 </div>
@@ -1485,6 +1626,381 @@ function A4PreviewPremium({
                     <div className="mt-10 text-center text-xs text-muted-foreground">
                         {footer || ''}
                     </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/**
+ * A stand-in for the QR code in the builder preview. The scannable code is
+ * drawn server-side when the document renders; this only has to look like
+ * one, so it is a fixed pattern with the three finder squares in place.
+ */
+function QrPlaceholder({ color }: { color: string }) {
+    const size = 21;
+    const finder = (x: number, y: number) =>
+        x < 7 && y < 7
+            ? [0, 6].includes(x) ||
+              [0, 6].includes(y) ||
+              (x > 1 && x < 5 && y > 1 && y < 5)
+            : null;
+
+    const cells: Array<[number, number]> = [];
+    for (let y = 0; y < size; y++) {
+        for (let x = 0; x < size; x++) {
+            const corner =
+                finder(x, y) ??
+                finder(size - 1 - x, y) ??
+                finder(x, size - 1 - y);
+            const inFinderZone =
+                (x < 8 && y < 8) ||
+                (x > size - 9 && y < 8) ||
+                (x < 8 && y > size - 9);
+            const on = inFinderZone
+                ? corner === true
+                : (x * 7 + y * 13 + x * y) % 3 === 0;
+            if (on) cells.push([x, y]);
+        }
+    }
+
+    return (
+        <svg
+            viewBox={`0 0 ${size} ${size}`}
+            className="h-full w-full"
+            shapeRendering="crispEdges"
+        >
+            <path
+                fill={color}
+                d={cells.map(([x, y]) => `M${x} ${y}h1v1h-1z`).join('')}
+            />
+        </svg>
+    );
+}
+
+/**
+ * Builder preview for the Meridian preset. Mirrors
+ * resources/views/invoices/templates/presets/meridian.blade.php.
+ */
+function A4PreviewMeridian({
+    documentNumberLabel,
+    documentNumberValue,
+    documentTitle,
+    documentType,
+    settings,
+    terms,
+    footer,
+}: {
+    documentNumberLabel: string;
+    documentNumberValue: string;
+    documentTitle: string;
+    documentType: 'invoice' | 'quotation';
+    settings: TemplateSettings;
+    terms: string;
+    footer: string;
+}) {
+    const ink = settings.brand.primary;
+    const accent = settings.brand.accent;
+    const panel = settings.brand.header || ink;
+
+    const fontMap: Record<TemplateSettings['brand']['font'], string> = {
+        Inter: 'Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif',
+        Roboto: 'Roboto, ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif',
+        Arial: 'Arial, Helvetica, ui-sans-serif, system-ui, sans-serif',
+    };
+
+    const items = SAMPLE.document.items.map((it) => ({
+        ...it,
+        total: it.qty * it.price,
+    }));
+    const subtotal = items.reduce((a, b) => a + b.total, 0);
+    const vat = subtotal * 0.16;
+    const grand = subtotal + vat;
+    const money = (n: number) =>
+        `K ${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
+    const showQr =
+        settings.visibility.show_qr && settings.content.qr_url.trim() !== '';
+    const website = settings.content.qr_url
+        .trim()
+        .replace(/^https?:\/\/(www\.)?/, '')
+        .replace(/\/$/, '');
+    const initials = SAMPLE.company.name
+        .split(/\s+/)
+        .slice(0, 2)
+        .map((w) => w[0]?.toUpperCase())
+        .join('');
+    const table = settings.layout.table;
+
+    return (
+        <div className="flex justify-center">
+            <div
+                className="relative w-full max-w-[760px] overflow-hidden rounded-2xl bg-[#F1F3F6] px-6 pb-10 text-[11px] shadow-xl sm:px-8"
+                style={{ fontFamily: fontMap[settings.brand.font], color: ink }}
+            >
+                <div className="flex gap-6 pt-6 sm:gap-10">
+                    {/* Panel */}
+                    <div className="w-[38%] shrink-0">
+                        <div
+                            className="relative mt-14 rounded-bl-3xl px-5 pt-16 pb-6 text-white"
+                            style={{ backgroundColor: panel }}
+                        >
+                            <div className="absolute -top-14 left-1/2 grid h-24 w-24 -translate-x-1/2 place-items-center rounded-xl bg-white p-2.5 shadow-lg">
+                                {showQr ? (
+                                    <QrPlaceholder color={panel} />
+                                ) : (
+                                    <span
+                                        className="text-2xl font-extrabold"
+                                        style={{ color: panel }}
+                                    >
+                                        {initials}
+                                    </span>
+                                )}
+                            </div>
+
+                            <div className="font-semibold">Date</div>
+                            <div className="mb-3 opacity-85">
+                                {SAMPLE.document.issue_date}
+                            </div>
+                            <div className="font-semibold">
+                                {documentType === 'quotation'
+                                    ? 'Valid until'
+                                    : 'Due'}
+                            </div>
+                            <div className="mb-3 opacity-85">
+                                {SAMPLE.document.due_date}
+                            </div>
+                            <div className="mb-3 h-px w-6 bg-white/60" />
+                            <div className="font-semibold">To</div>
+                            <div className="opacity-85">
+                                {SAMPLE.client.name}
+                            </div>
+                            {settings.visibility.show_contact_person && (
+                                <div className="opacity-85">
+                                    Attn: {SAMPLE.client.contact_person}
+                                </div>
+                            )}
+                            <div className="opacity-85">
+                                {SAMPLE.client.address}
+                            </div>
+                            {settings.visibility.show_client_email && (
+                                <div className="mt-2 opacity-85">
+                                    {SAMPLE.client.email}
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Right column */}
+                    <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2">
+                            {settings.visibility.show_logo && showQr && (
+                                <div
+                                    className="grid h-8 w-8 place-items-center rounded-md text-[9px] font-bold text-white"
+                                    style={{ backgroundColor: panel }}
+                                >
+                                    LOGO
+                                </div>
+                            )}
+                            <div>
+                                <div className="text-sm leading-tight font-bold">
+                                    {SAMPLE.company.name}
+                                </div>
+                                {settings.content.tagline.trim() !== '' && (
+                                    <div
+                                        className="text-[10px] font-semibold"
+                                        style={{ color: accent }}
+                                    >
+                                        {settings.content.tagline}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        <div className="mt-8 text-[32px] leading-none font-extrabold tracking-tight sm:text-4xl">
+                            {documentTitle}
+                            <span style={{ color: accent }}>.</span>
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground">
+                            Smart Invoice Integration
+                        </div>
+
+                        <div className="mt-5 grid grid-cols-2 divide-x rounded-md bg-white py-3 text-center">
+                            <div>
+                                <div className="text-[10px] text-muted-foreground">
+                                    {documentNumberLabel}
+                                </div>
+                                <div className="text-xs font-bold">
+                                    {documentNumberValue}
+                                </div>
+                            </div>
+                            <div>
+                                <div className="text-[10px] text-muted-foreground">
+                                    Amount
+                                </div>
+                                <div className="text-xs font-bold">
+                                    {money(grand)}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-5 flex gap-4">
+                            <div className="w-14 shrink-0 font-bold">
+                                From
+                                <div
+                                    className="mt-1 h-0.5 w-4"
+                                    style={{ backgroundColor: accent }}
+                                />
+                            </div>
+                            <div className="text-muted-foreground">
+                                {SAMPLE.company.name}
+                                <br />
+                                {SAMPLE.company.address}
+                                <br />
+                                {SAMPLE.company.tpin}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Items */}
+                <div className="mt-8 overflow-hidden rounded-md bg-white">
+                    <div
+                        className="grid grid-cols-12 gap-2 px-6 py-3 font-semibold text-white"
+                        style={{ backgroundColor: panel }}
+                    >
+                        <div className="col-span-6">Item description</div>
+                        <div className="col-span-2 text-center">Qty</div>
+                        <div className="col-span-2 text-right">Unit price</div>
+                        <div className="col-span-2 text-right">Amount</div>
+                    </div>
+                    {items.map((it, idx) => (
+                        <div
+                            key={idx}
+                            className={cn(
+                                'grid grid-cols-12 gap-2 px-6 py-3',
+                                table === 'lined' && idx > 0 && 'border-t',
+                                table === 'striped' &&
+                                    idx % 2 === 1 &&
+                                    'bg-black/[0.02]',
+                            )}
+                        >
+                            <div className="col-span-6">{it.desc}</div>
+                            <div className="col-span-2 text-center">
+                                {it.qty}
+                            </div>
+                            <div className="col-span-2 text-right">
+                                {money(it.price)}
+                            </div>
+                            <div className="col-span-2 text-right font-semibold">
+                                {money(it.total)}
+                            </div>
+                        </div>
+                    ))}
+                    <div className="mx-6 border-t py-4">
+                        <div className="ml-auto w-1/2 space-y-1.5">
+                            <div className="flex justify-between">
+                                <span className="font-semibold">Subtotal</span>
+                                <span>{money(subtotal)}</span>
+                            </div>
+                            <div className="flex justify-between">
+                                <span className="font-semibold">VAT (16%)</span>
+                                <span>{money(vat)}</span>
+                            </div>
+                            <div
+                                className="flex justify-between border-t pt-2 text-sm font-extrabold"
+                                style={{ color: panel }}
+                            >
+                                <span>Total</span>
+                                <span>{money(grand)}</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {/* Footer blocks */}
+                <div className="mt-6 grid grid-cols-2 gap-6 px-6">
+                    <div className="text-muted-foreground">
+                        {settings.visibility.show_terms &&
+                            terms.trim() !== '' && (
+                                <>
+                                    <div className="mb-1 font-semibold text-foreground">
+                                        Terms
+                                    </div>
+                                    <div className="whitespace-pre-wrap">
+                                        {terms}
+                                    </div>
+                                </>
+                            )}
+                        {settings.visibility.show_bank_details && (
+                            <div className="mt-3">
+                                <div className="mb-1 font-semibold text-foreground">
+                                    Payment details
+                                </div>
+                                {SAMPLE.company.bank.name} ·{' '}
+                                {SAMPLE.company.bank.account_number}
+                            </div>
+                        )}
+                    </div>
+                    <div className="space-y-2.5">
+                        {[
+                            ['Email', SAMPLE.company.email],
+                            ['Phone', SAMPLE.company.phone],
+                            ['Website', website],
+                        ]
+                            .filter(([, v]) => v)
+                            .map(([label, value]) => (
+                                <div
+                                    key={label}
+                                    className="flex items-center gap-2.5"
+                                >
+                                    <div
+                                        className="h-6 w-6 shrink-0 rounded-md"
+                                        style={{ backgroundColor: panel }}
+                                    />
+                                    <div className="leading-tight text-muted-foreground">
+                                        <div className="font-semibold text-foreground">
+                                            {label}
+                                        </div>
+                                        {value}
+                                    </div>
+                                </div>
+                            ))}
+                    </div>
+                </div>
+
+                {settings.visibility.show_signature && (
+                    <div className="mt-8 grid grid-cols-2 gap-6 px-6 text-muted-foreground">
+                        <div className="border-t pt-2">
+                            <div className="font-semibold text-foreground">
+                                {SAMPLE.company.name}
+                            </div>
+                            Authorised signatory
+                        </div>
+                        <div className="border-t pt-2">
+                            <div className="font-semibold text-foreground">
+                                Accepted by
+                            </div>
+                            Name, signature &amp; date
+                        </div>
+                    </div>
+                )}
+
+                {footer && (
+                    <div className="mt-6 text-center text-muted-foreground">
+                        {footer}
+                    </div>
+                )}
+
+                <div className="absolute inset-x-0 bottom-0 flex h-1.5">
+                    <div
+                        className="flex-[78]"
+                        style={{ backgroundColor: panel }}
+                    />
+                    <div
+                        className="flex-[22]"
+                        style={{ backgroundColor: accent }}
+                    />
                 </div>
             </div>
         </div>

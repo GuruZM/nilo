@@ -11,6 +11,7 @@ use App\Http\Resources\Api\V1\InvoiceResource;
 use App\Models\Invoice;
 use App\Services\DocumentPrerequisites;
 use App\Services\Documents\CreateInvoice;
+use App\Services\Documents\SendInvoiceToClient;
 use App\Services\InvoiceDocumentRenderer;
 use App\Services\SubscriptionLimitService;
 use App\Support\DocumentRules;
@@ -27,6 +28,7 @@ class InvoiceController extends Controller
     public function __construct(
         private CreateInvoice $creator,
         private InvoiceDocumentRenderer $documents,
+        private SendInvoiceToClient $sender,
     ) {}
 
     public function index(Request $request): AnonymousResourceCollection
@@ -104,6 +106,35 @@ class InvoiceController extends Controller
         $invoice->update(['status' => $data['status']]);
 
         return InvoiceResource::make($this->loadForShow($invoice->fresh()));
+    }
+
+    /**
+     * Email the invoice to its client.
+     *
+     * The browser only sends at creation time, through `send_to_client`. A phone
+     * needs to send an invoice it is already looking at — chasing a payment is
+     * the whole point — so this is its own action over the same service.
+     *
+     * A client with no email address is a 422 rather than a quiet success: the
+     * request asked for something that cannot happen, and reporting it as sent
+     * would be a lie the user only discovers when nobody pays.
+     */
+    public function send(Request $request, Invoice $invoice): JsonResponse
+    {
+        $this->guardCompany($request, $invoice);
+
+        $result = $this->sender->handle($invoice);
+
+        if (! $result['sent']) {
+            return response()->json([
+                'message' => $result['message'],
+                'error' => 'not_deliverable',
+            ], 422);
+        }
+
+        return InvoiceResource::make($this->loadForShow($invoice->fresh()))
+            ->additional(['message' => $result['message']])
+            ->response();
     }
 
     /**

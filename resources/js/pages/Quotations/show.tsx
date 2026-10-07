@@ -1,4 +1,4 @@
-import { Head, router, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import { motion } from 'framer-motion';
 import { Download, Eye, FileSignature, Printer, Receipt } from 'lucide-react';
 import * as React from 'react';
@@ -13,7 +13,11 @@ import {
     SoftTile,
     StatusPill,
     TotalRow,
+    pillButtonClass,
 } from '@/components/dashboard/primitives';
+import LimitNoticeDialog, {
+    type LimitNotice,
+} from '@/components/limit-notice-dialog';
 import { Money } from '@/components/money';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
@@ -64,9 +68,13 @@ const STATUSES = ['draft', 'sent', 'accepted', 'expired'] as const;
 
 export default function QuotationShow({
     quotation,
+    invoice = null,
+    limitNotice = null,
     justCreated = false,
 }: {
     quotation: Quotation;
+    invoice?: { id: number; number: string | null } | null;
+    limitNotice?: LimitNotice | null;
     justCreated?: boolean;
 }) {
     const page = usePage() as any;
@@ -101,6 +109,31 @@ export default function QuotationShow({
             `/quotations/${quotation.id}/${path}`,
             '_blank',
             'noopener,noreferrer',
+        );
+    };
+
+    /**
+     * Bills this quotation and lands on the invoice.
+     *
+     * The server refuses a second invoice, so the worst a double-click can do
+     * is land on the one that already exists — the latch is here to keep the
+     * button from looking inert while the first request is in flight.
+     */
+    const [invoicing, setInvoicing] = React.useState(false);
+
+    const createInvoice = () => {
+        if (invoicing) {
+            return;
+        }
+
+        router.post(
+            `/quotations/${quotation.id}/invoice`,
+            {},
+            {
+                onStart: () => setInvoicing(true),
+                onFinish: () => setInvoicing(false),
+                onError: () => toast.error('Failed to create the invoice.'),
+            },
         );
     };
 
@@ -142,6 +175,9 @@ export default function QuotationShow({
             {/* Celebrates the quotation that was just created, once. */}
             <ConfettiBurst active={justCreated} />
 
+            {/* Explains a plan cap that refused the invoice. */}
+            <LimitNoticeDialog notice={limitNotice} />
+
             <div className="mx-auto w-full py-3">
                 {/* Header */}
                 <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
@@ -179,6 +215,27 @@ export default function QuotationShow({
                             <Download className="h-4 w-4" />
                             Download PDF
                         </PillButton>
+
+                        {/* Billed already, or not yet — never both. */}
+                        {invoice ? (
+                            <Link
+                                href={`/invoices/${invoice.id}`}
+                                className={pillButtonClass('solid', 'sm')}
+                            >
+                                <Receipt className="h-4 w-4" />
+                                {invoice.number ?? 'View invoice'}
+                            </Link>
+                        ) : (
+                            <PillButton
+                                variant="solid"
+                                size="sm"
+                                onClick={createInvoice}
+                                disabled={invoicing}
+                            >
+                                <Receipt className="h-4 w-4" />
+                                {invoicing ? 'Creating…' : 'Create invoice'}
+                            </PillButton>
+                        )}
                     </div>
                 </div>
 
