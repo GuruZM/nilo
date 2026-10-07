@@ -1,6 +1,6 @@
 # Deploying Nilo to cPanel shared hosting
 
-Push to `main` → `tests` workflow passes → `deploy` workflow builds vendor +
+Push to `main` → `ci` workflow: `lint` + `tests` pass → `deploy` job builds vendor +
 Vite assets on the runner, rsyncs a release over SSH, migrates, caches, and
 atomically swaps `current`. No Node or Composer needed on the server.
 
@@ -64,7 +64,7 @@ It does steps 3–6 and 8 below (steps 8 only if `gh` is logged in). The manual 
 
 ## First deploy
 
-Actions › deploy › Run workflow. Then seed once over SSH:
+Actions › ci › Run workflow (tick **force** to deploy past a red check). Then seed once over SSH:
 `cd ~/nilo-app/current && <php-bin> artisan db:seed --force` (currencies, roles,
 super admin — check which seeders are prod-safe first).
 

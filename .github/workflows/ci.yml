@@ -1,23 +1,101 @@
-name: deploy
+name: ci
 
-# Ships main to the cPanel host once the test suite has passed on it.
-# Run it by hand from the Actions tab to redeploy without a new commit.
+# One pipeline per push: lint and tests run side by side on a single
+# dependency install each, and deploy runs only once both pass on main.
+# Actions › ci › Run workflow with "force" ticked deploys main even if a
+# check is red — for hotfixes, not habit.
 on:
-  workflow_run:
-    workflows: [tests]
-    types: [completed]
-    branches: [main]
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
   workflow_dispatch:
+    inputs:
+      force:
+        description: Deploy even if lint or tests fail
+        type: boolean
+        default: false
 
 concurrency:
-  group: deploy-production
-  cancel-in-progress: false
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          composer install -q --no-interaction --no-scripts --no-progress --prefer-dist
+          npm ci
+
+      - name: Pint
+        run: vendor/bin/pint --test
+
+      - name: Prettier
+        run: npm run format:check
+
+      - name: ESLint
+        run: npx eslint .
+
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          tools: composer:v2
+          coverage: none
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: |
+          npm ci
+          composer install --no-interaction --prefer-dist --optimize-autoloader
+
+      - name: Build assets
+        run: npm run build
+
+      - name: Prepare environment
+        run: |
+          cp .env.example .env
+          php artisan key:generate
+
+      - name: Pest
+        run: ./vendor/bin/pest
+
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    needs: [lint, tests]
+    if: >-
+      always() && github.ref == 'refs/heads/main' &&
+      (
+        (github.event_name == 'push' && needs.lint.result == 'success' && needs.tests.result == 'success') ||
+        (github.event_name == 'workflow_dispatch' && (inputs.force || (needs.lint.result == 'success' && needs.tests.result == 'success')))
+      )
     runs-on: ubuntu-latest
     environment: production
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
 
     env:
       DEPLOY_PATH: ${{ vars.DEPLOY_PATH }}
@@ -27,21 +105,15 @@ jobs:
       SSH_USER: ${{ secrets.SSH_USER }}
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: actions/checkout@v4
 
-      - name: Setup PHP
-        uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@v2
         with:
-          # Match the version the cPanel account runs (MultiPHP Manager).
           php-version: ${{ vars.PHP_VERSION || '8.3' }}
           tools: composer:v2
           coverage: none
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
           cache: 'npm'
