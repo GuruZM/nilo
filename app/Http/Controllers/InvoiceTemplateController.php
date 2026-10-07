@@ -6,6 +6,7 @@ use App\Enums\TemplatePreset;
 use App\Models\InvoiceTemplate;
 use App\Models\ProprietaryPreset;
 use App\Services\SubscriptionLimitService;
+use App\Support\BankDetails;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -319,11 +320,19 @@ class InvoiceTemplateController extends Controller
             'settings.preset' => ['sometimes', 'bail', Rule::enum(TemplatePreset::class), Rule::notIn(ProprietaryPreset::lockedFor($companyId))],
             'settings.content.qr_url' => ['nullable', 'string', 'max:500'],
             'settings.content.tagline' => ['nullable', 'string', 'max:120'],
+            'settings.bank' => ['nullable', 'array'],
+            'settings.bank.name' => ['nullable', 'string', 'max:120'],
+            'settings.bank.account_name' => ['nullable', 'string', 'max:120'],
+            'settings.bank.account_number' => ['nullable', 'string', 'max:60'],
+            'settings.bank.branch' => ['nullable', 'string', 'max:120'],
+            'settings.bank.swift_code' => ['nullable', 'string', 'max:20'],
             'terms_html' => ['nullable', 'string'],
             'footer_html' => ['nullable', 'string'],
         ], [
             'settings.preset.enum' => 'Choose one of the available designs.',
             'settings.preset.not_in' => 'That design is exclusive to another company.',
+            'settings.bank.*.string' => 'Bank details must be plain text.',
+            'settings.bank.*.max' => 'Keep each bank detail under :max characters.',
         ]);
 
         /**
@@ -367,6 +376,7 @@ class InvoiceTemplateController extends Controller
             'qr_url' => $this->qrLink((string) ($settings['content']['qr_url'] ?? '')),
             'tagline' => trim((string) ($settings['content']['tagline'] ?? '')),
         ];
+        $settings['bank'] = BankDetails::normalize($settings['bank'] ?? []);
 
         return $settings;
     }
@@ -441,7 +451,8 @@ class InvoiceTemplateController extends Controller
      *         show_signature: bool,
      *         show_qr: bool
      *     },
-     *     content: array{qr_url: string, tagline: string}
+     *     content: array{qr_url: string, tagline: string},
+     *     bank: array{name: string, account_name: string, account_number: string, branch: string, swift_code: string}
      * }
      */
     private function templateDefaults(): array
@@ -473,6 +484,7 @@ class InvoiceTemplateController extends Controller
                 'qr_url' => '',
                 'tagline' => '',
             ],
+            'bank' => BankDetails::normalize([]),
         ];
     }
 }

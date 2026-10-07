@@ -74,6 +74,13 @@ type TemplateSettings = {
         qr_url: string;
         tagline: string;
     };
+    bank: {
+        name: string;
+        account_name: string;
+        account_number: string;
+        branch: string;
+        swift_code: string;
+    };
 };
 
 type TemplatePayload = {
@@ -226,9 +233,58 @@ const DEFAULT_SETTINGS: TemplateSettings = {
         show_qr: true,
     },
     content: { qr_url: '', tagline: '' },
+    bank: {
+        name: '',
+        account_name: '',
+        account_number: '',
+        branch: '',
+        swift_code: '',
+    },
 };
 
-// sample preview data (updated to include bank + signature)
+/** Labels and limits match App\Support\BankDetails and the controller's rules. */
+const BANK_FIELDS: Array<{
+    key: keyof TemplateSettings['bank'];
+    label: string;
+    placeholder: string;
+    maxLength: number;
+}> = [
+    { key: 'name', label: 'Bank', placeholder: 'e.g. Zanaco', maxLength: 120 },
+    {
+        key: 'account_name',
+        label: 'Account name',
+        placeholder: 'As registered with the bank',
+        maxLength: 120,
+    },
+    {
+        key: 'account_number',
+        label: 'Account number',
+        placeholder: 'e.g. 0012345678901',
+        maxLength: 60,
+    },
+    {
+        key: 'branch',
+        label: 'Branch',
+        placeholder: 'e.g. Cairo Road',
+        maxLength: 120,
+    },
+    {
+        key: 'swift_code',
+        label: 'SWIFT code',
+        placeholder: 'For international transfers',
+        maxLength: 20,
+    },
+];
+
+/** The filled bank fields, labelled, in the order the printed sheet lists them. */
+function bankLines(bank: TemplateSettings['bank']) {
+    return BANK_FIELDS.map((field) => ({
+        label: field.label,
+        value: (bank[field.key] ?? '').trim(),
+    })).filter((line) => line.value !== '');
+}
+
+// sample preview data (bank details come from the template itself)
 const SAMPLE = {
     company: {
         name: 'Nilo Labs Ltd',
@@ -236,12 +292,6 @@ const SAMPLE = {
         phone: '+260 97X XXX XXX',
         email: 'billing@nilo.ai',
         tpin: 'TPIN: 1234567890',
-        bank: {
-            name: 'Zanaco',
-            account_name: 'Nilo Labs Ltd',
-            account_number: '00123456789',
-            branch: 'Cairo Road',
-        },
     },
     client: {
         name: 'Resonant Technologies',
@@ -345,6 +395,7 @@ export default function InvoiceTemplateBuilder({
                 ...(s.visibility ?? {}),
             },
             content: { ...DEFAULT_SETTINGS.content, ...(s.content ?? {}) },
+            bank: { ...DEFAULT_SETTINGS.bank, ...(s.bank ?? {}) },
         };
     }, [template, presets]);
 
@@ -392,6 +443,7 @@ export default function InvoiceTemplateBuilder({
                 ...settings.visibility,
             },
             content: { ...DEFAULT_SETTINGS.content, ...settings.content },
+            bank: { ...DEFAULT_SETTINGS.bank, ...settings.bank },
         };
 
         form.setData('settings', next);
@@ -434,6 +486,13 @@ export default function InvoiceTemplateBuilder({
         form.setData('settings', {
             ...settings,
             content: { ...settings.content, [key]: v },
+        });
+    };
+
+    const setBank = (key: keyof TemplateSettings['bank'], v: string) => {
+        form.setData('settings', {
+            ...settings,
+            bank: { ...settings.bank, [key]: v },
         });
     };
 
@@ -489,6 +548,7 @@ export default function InvoiceTemplateBuilder({
                 errors?.template ||
                     errors?.name ||
                     errors?.settings ||
+                    Object.values(errors ?? {})[0] ||
                     'Failed to save template.',
             );
         };
@@ -996,6 +1056,71 @@ export default function InvoiceTemplateBuilder({
                                             />
                                         </div>
 
+                                        {settings.visibility
+                                            .show_bank_details && (
+                                            <>
+                                                <Separator />
+
+                                                <div className="space-y-3">
+                                                    <div>
+                                                        <div className="text-sm font-semibold">
+                                                            Bank details
+                                                        </div>
+                                                        <p className="text-xs text-muted-foreground">
+                                                            Printed on every
+                                                            document that uses
+                                                            this template. Blank
+                                                            fields are left off.
+                                                        </p>
+                                                    </div>
+
+                                                    {BANK_FIELDS.map(
+                                                        (field) => (
+                                                            <div
+                                                                key={field.key}
+                                                                className="space-y-2"
+                                                            >
+                                                                <Label
+                                                                    htmlFor={`bank-${field.key}`}
+                                                                >
+                                                                    {
+                                                                        field.label
+                                                                    }
+                                                                </Label>
+                                                                <Input
+                                                                    id={`bank-${field.key}`}
+                                                                    value={
+                                                                        settings
+                                                                            .bank[
+                                                                            field
+                                                                                .key
+                                                                        ]
+                                                                    }
+                                                                    onChange={(
+                                                                        e,
+                                                                    ) =>
+                                                                        setBank(
+                                                                            field.key,
+                                                                            e
+                                                                                .target
+                                                                                .value,
+                                                                        )
+                                                                    }
+                                                                    placeholder={
+                                                                        field.placeholder
+                                                                    }
+                                                                    maxLength={
+                                                                        field.maxLength
+                                                                    }
+                                                                    className="rounded-xl"
+                                                                />
+                                                            </div>
+                                                        ),
+                                                    )}
+                                                </div>
+                                            </>
+                                        )}
+
                                         {settings.preset === 'meridian' && (
                                             <>
                                                 <Separator />
@@ -1347,7 +1472,7 @@ function ToggleRow({
  * - Wave separator
  * - Accent table header + Grand Total bar
  * - Clean blocks for bill-to, notes, terms
- * - Added: bank + signature controlled by toggles
+ * - Added: bank details (entered in the Content step) + signature controlled by toggles
  * - Added: font family mapping (Inter/Roboto/Arial)
  */
 function A4PreviewPremium({
@@ -1377,6 +1502,7 @@ function A4PreviewPremium({
         Arial: 'Arial, Helvetica, ui-sans-serif, system-ui, sans-serif',
     };
     const fontFamily = fontMap[settings.brand.font] ?? fontMap.Inter;
+    const bank = bankLines(settings.bank);
 
     const items = SAMPLE.document.items.map((it) => ({
         ...it,
@@ -1630,15 +1756,13 @@ function A4PreviewPremium({
                                         Bank Details
                                     </div>
                                     <div className="mt-2 text-sm text-muted-foreground">
-                                        Bank: {SAMPLE.company.bank.name}
-                                        <br />
-                                        Account Name:{' '}
-                                        {SAMPLE.company.bank.account_name}
-                                        <br />
-                                        Account No:{' '}
-                                        {SAMPLE.company.bank.account_number}
-                                        <br />
-                                        Branch: {SAMPLE.company.bank.branch}
+                                        {bank.length > 0
+                                            ? bank.map((line) => (
+                                                  <div key={line.label}>
+                                                      {line.label}: {line.value}
+                                                  </div>
+                                              ))
+                                            : '—'}
                                     </div>
                                 </div>
                             )}
@@ -1786,6 +1910,7 @@ function A4PreviewMeridian({
         .trim()
         .replace(/^https?:\/\/(www\.)?/, '')
         .replace(/\/$/, '');
+    const bank = bankLines(settings.bank);
     const initials = SAMPLE.company.name
         .split(/\s+/)
         .slice(0, 2)
@@ -1993,15 +2118,19 @@ function A4PreviewMeridian({
                                     </div>
                                 </>
                             )}
-                        {settings.visibility.show_bank_details && (
-                            <div className="mt-3">
-                                <div className="mb-1 font-semibold text-foreground">
-                                    Payment details
+                        {settings.visibility.show_bank_details &&
+                            bank.length > 0 && (
+                                <div className="mt-3">
+                                    <div className="mb-1 font-semibold text-foreground">
+                                        Payment details
+                                    </div>
+                                    {bank.map((line) => (
+                                        <div key={line.label}>
+                                            {line.label}: {line.value}
+                                        </div>
+                                    ))}
                                 </div>
-                                {SAMPLE.company.bank.name} ·{' '}
-                                {SAMPLE.company.bank.account_number}
-                            </div>
-                        )}
+                            )}
                     </div>
                     <div className="space-y-2.5">
                         {[

@@ -7,6 +7,7 @@ use App\Models\Currency;
 use App\Models\Invoice;
 use App\Models\InvoiceTemplate;
 use App\Models\ProprietaryPreset;
+use App\Support\BankDetails;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\View;
 
@@ -51,6 +52,7 @@ class InvoiceDocumentRenderer
                 'qr_url' => '',
                 'tagline' => '',
             ],
+            'bank' => BankDetails::normalize([]),
         ];
     }
 

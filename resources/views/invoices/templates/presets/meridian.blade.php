@@ -100,7 +100,7 @@
     $termsText = trim(strip_tags((string) ($template->terms_html ?? $field('terms', ''))));
     $notesText = trim((string) $field('notes', ''));
     $footerHtml = $template->footer_html ?? '';
-    $bankHtml = $template->bank_html ?? ($company->bank_details_html ?? $company->bank_details ?? null);
+    $bankLines = \App\Support\BankDetails::lines($s['bank'] ?? []);
     $signName = $company->signatory_name ?? 'Authorised signatory';
 
     $logoSrc = \App\Support\DocumentLogo::src($company->logo_path ?? null, $isPdf);
@@ -438,9 +438,13 @@
                         <h4>Terms</h4>
                         <div class="block">{{ $termsText }}</div>
                     @endif
-                    @if($showBankDetails && ! empty($bankHtml))
+                    @if($showBankDetails && $bankLines !== [])
                         <h4>Payment details</h4>
-                        <div class="block" style="white-space: normal;">{!! $bankHtml !!}</div>
+                        <div class="block" style="white-space: normal;">
+                            @foreach($bankLines as $line)
+                                <div>{{ $line['label'] }}: {{ $line['value'] }}</div>
+                            @endforeach
+                        </div>
                     @endif
                     @if(! ($showNotes && $notesText !== '') && ! ($showTerms && $termsText !== ''))
                         <h4>{{ $type->closingTitle() }}</h4>

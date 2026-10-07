@@ -187,10 +187,8 @@
 
         $accentSoft = $hexToRgba($accent, 0.14);
 
-        // --------- Bank/signature (fallbacks)
-        // You can later add these into template settings/content and store them in DB.
-        $bankHtml = $template->bank_html
-            ?? ($company->bank_details_html ?? $company->bank_details ?? null);
+        // --------- Bank/signature
+        $bankLines = \App\Support\BankDetails::lines($s['bank'] ?? []);
 
         $signName  = $company->signatory_name ?? 'Authorized Signatory';
         $signTitle = $company->signatory_title ?? '';
@@ -739,23 +737,15 @@
             {{-- Bottom blocks --}}
             <div class="bottom">
                 <div style="display:flex; flex-direction:column; gap:14px;">
-                    {{-- Bank Details (was notes in the preview) --}}
-                    @if($showBankDetails)
+                    {{-- Bank Details --}}
+                    @if($showBankDetails && $bankLines !== [])
                         <div class="card">
-                            <div class="card-title">Payment Info</div>
-
-                            @if(!empty($bankHtml))
-                                <div class="card-body" style="white-space: normal;">
-                                    {!! $bankHtml !!}
-                                </div>
-                            @else
-                                <div class="card-body">
-                                    Bank: —<br>
-                                    Account Name: —<br>
-                                    Account No: —<br>
-                                    Branch: —
-                                </div>
-                            @endif
+                            <div class="card-title">Bank Details</div>
+                            <div class="card-body" style="white-space: normal;">
+                                @foreach($bankLines as $line)
+                                    <div>{{ $line['label'] }}: {{ $line['value'] }}</div>
+                                @endforeach
+                            </div>
                         </div>
                     @endif
 
