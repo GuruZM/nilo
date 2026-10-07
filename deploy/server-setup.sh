@@ -33,7 +33,7 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 
 "$PHP" -v | head -1
-for ext in bcmath ctype curl dom fileinfo iconv mbstring openssl pdo_mysql tokenizer xml gd zip intl; do
+for ext in bcmath ctype curl dom fileinfo iconv mbstring openssl pdo_pgsql tokenizer xml gd zip intl; do
   "$PHP" -m | grep -qi "^$ext$" && echo "  ok  $ext" || echo "  MISSING  $ext  (enable in Select PHP Version / MultiPHP INI)"
 done
 

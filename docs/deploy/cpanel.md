@@ -32,7 +32,7 @@ It does steps 3–6 and 8 below (steps 8 only if `gh` is logged in). The manual 
 1. **PHP** — cPanel › MultiPHP Manager: set the domain to PHP 8.3+. Find the CLI
    binary that matches (often `/opt/cpanel/ea-php83/root/usr/bin/php` or
    `/usr/local/bin/php`) — `php -v` in Terminal must print 8.3+.
-2. **Database** — cPanel › MySQL Databases: create DB + user, grant ALL.
+2. **Database** — cPanel › PostgreSQL Databases: create DB + user, add the user to the DB (ALL). PHP needs `pdo_pgsql` enabled in Select PHP Version.
 3. **SSH key** — on your machine: `ssh-keygen -t ed25519 -f nilo_deploy -N ""`.
    cPanel › SSH Access › Import Key › paste `nilo_deploy.pub` › Authorize.
 4. **Bootstrap** —

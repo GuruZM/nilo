@@ -10,7 +10,7 @@
 # and storage are never web-reachable and the subdomain config is untouched.
 #
 # Uses your existing SSH access (key or password) to: authorise a dedicated
-# deploy key, lay out the app dir, create the MySQL DB, fill shared/.env, add
+# deploy key, lay out the app dir, create the PostgreSQL DB, fill shared/.env, add
 # the scheduler cron, link the docroot, and (if the gh CLI is logged in) load
 # the GitHub `production` environment secrets/variables.
 set -euo pipefail
@@ -50,16 +50,16 @@ step "Layout + .env"
 "${SCP[@]}" deploy/server-setup.sh deploy/activate-release.sh deploy/.env.production.example "$SSH_USER@$SSH_HOST:nilo-setup/"
 "${SSH[@]}" "bash ~/nilo-setup/server-setup.sh '$APP_ROOT' '$PHP_BIN'"
 
-step "MySQL database"
+step "PostgreSQL database"
 if "${SSH[@]}" "grep -q '^DB_PASSWORD=.\+' '$APP_ROOT/shared/.env'"; then
   echo "DB_PASSWORD already set in shared/.env — skipping DB creation."
 else
-  PREFIX=$("${SSH[@]}" "uapi --output=json Mysql get_restrictions" | sed -n 's/.*"prefix":"\([^"]*\)".*/\1/p')
+  PREFIX=$("${SSH[@]}" "uapi --output=json Postgresql get_restrictions" | sed -n 's/.*"prefix":"\([^"]*\)".*/\1/p')
   DB="${PREFIX}nilo"
   DB_PASS=$(LC_ALL=C tr -dc 'A-Za-z0-9' </dev/urandom | head -c 28)
-  "${SSH[@]}" "uapi --output=json Mysql create_database name='$DB' | grep -q '\"status\":1' || echo 'create_database: may already exist'"
-  "${SSH[@]}" "uapi --output=json Mysql create_user name='$DB' password='$DB_PASS' | grep -q '\"status\":1' || uapi --output=json Mysql set_password user='$DB' password='$DB_PASS' | grep -q '\"status\":1'"
-  "${SSH[@]}" "uapi --output=json Mysql set_privileges_on_database user='$DB' database='$DB' privileges='ALL PRIVILEGES' | grep -q '\"status\":1'"
+  "${SSH[@]}" "uapi --output=json Postgresql create_database name='$DB' | grep -q '\"status\":1' || echo 'create_database: may already exist'"
+  "${SSH[@]}" "uapi --output=json Postgresql create_user name='$DB' password='$DB_PASS' | grep -q '\"status\":1' || uapi --output=json Postgresql set_password user='$DB' password='$DB_PASS' | grep -q '\"status\":1'"
+  "${SSH[@]}" "uapi --output=json Postgresql grant_all_privileges user='$DB' database='$DB' | grep -q '\"status\":1'"
   "${SSH[@]}" "sed -i \
     -e 's|^DB_DATABASE=.*|DB_DATABASE=$DB|' \
     -e 's|^DB_USERNAME=.*|DB_USERNAME=$DB|' \
