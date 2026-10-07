@@ -340,6 +340,10 @@ export default function InvoiceTemplateBuilder({
 
     const settings = form.data.settings;
 
+    /** The server reports template-level failures under a key the form itself doesn't own. */
+    const templateError = (form.errors as Record<string, string | undefined>)
+        .template;
+
     const applyPreset = (presetId: TemplateSettings['preset']) => {
         const preset = PRESETS.find((p) => p.id === presetId);
 
@@ -454,7 +458,7 @@ export default function InvoiceTemplateBuilder({
             footer_html: form.data.footer_html,
         };
 
-        const onError = (errors: any) => {
+        const onError = (errors: Record<string, string>) => {
             toast.error(
                 errors?.template ||
                     errors?.name ||
@@ -710,8 +714,11 @@ export default function InvoiceTemplateBuilder({
                                             <Label>Font</Label>
                                             <Select
                                                 value={settings.brand.font}
-                                                onValueChange={(v: any) =>
-                                                    setBrand('font', v)
+                                                onValueChange={(v) =>
+                                                    setBrand(
+                                                        'font',
+                                                        v as TemplateSettings['brand']['font'],
+                                                    )
                                                 }
                                             >
                                                 <SelectTrigger className="rounded-xl">
@@ -735,8 +742,11 @@ export default function InvoiceTemplateBuilder({
                                             <Label>Density</Label>
                                             <Select
                                                 value={settings.layout.density}
-                                                onValueChange={(v: any) =>
-                                                    setLayout('density', v)
+                                                onValueChange={(v) =>
+                                                    setLayout(
+                                                        'density',
+                                                        v as TemplateSettings['layout']['density'],
+                                                    )
                                                 }
                                             >
                                                 <SelectTrigger className="rounded-xl">
@@ -771,8 +781,11 @@ export default function InvoiceTemplateBuilder({
                                             <Label>Header layout</Label>
                                             <Select
                                                 value={settings.layout.header}
-                                                onValueChange={(v: any) =>
-                                                    setLayout('header', v)
+                                                onValueChange={(v) =>
+                                                    setLayout(
+                                                        'header',
+                                                        v as TemplateSettings['layout']['header'],
+                                                    )
                                                 }
                                             >
                                                 <SelectTrigger className="rounded-xl">
@@ -797,8 +810,11 @@ export default function InvoiceTemplateBuilder({
                                             <Label>Table style</Label>
                                             <Select
                                                 value={settings.layout.table}
-                                                onValueChange={(v: any) =>
-                                                    setLayout('table', v)
+                                                onValueChange={(v) =>
+                                                    setLayout(
+                                                        'table',
+                                                        v as TemplateSettings['layout']['table'],
+                                                    )
                                                 }
                                             >
                                                 <SelectTrigger className="rounded-xl">
@@ -1135,15 +1151,11 @@ export default function InvoiceTemplateBuilder({
                                                 : 'Update template'}
                                         </Button>
 
-                                        {form.errors &&
-                                            (form.errors as any).template && (
-                                                <p className="text-sm text-destructive">
-                                                    {
-                                                        (form.errors as any)
-                                                            .template
-                                                    }
-                                                </p>
-                                            )}
+                                        {templateError && (
+                                            <p className="text-sm text-destructive">
+                                                {templateError}
+                                            </p>
+                                        )}
                                     </motion.div>
                                 )}
                             </AnimatePresence>

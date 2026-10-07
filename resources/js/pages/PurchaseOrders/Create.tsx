@@ -10,6 +10,7 @@ import {
     Plus,
     Receipt,
     Trash2,
+    type LucideIcon,
 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
@@ -84,7 +85,7 @@ const steps: {
     key: StepKey;
     title: string;
     description: string;
-    icon: any;
+    icon: LucideIcon;
 }[] = [
     {
         key: 'details',
@@ -312,9 +313,13 @@ export default function PurchaseOrdersCreate({
         );
     };
 
-    const updateItem = (idx: number, key: string, value: any) => {
+    const updateItem = <K extends keyof (typeof form.data.items)[number]>(
+        idx: number,
+        key: K,
+        value: (typeof form.data.items)[number][K],
+    ) => {
         const next = [...form.data.items];
-        (next[idx] as any)[key] = value;
+        next[idx][key] = value;
         form.setData('items', next);
     };
 
@@ -573,7 +578,11 @@ export default function PurchaseOrdersCreate({
                             return;
                         }
 
-                        step === 'review' ? submit() : goNext();
+                        if (step === 'review') {
+                            submit();
+                        } else {
+                            goNext();
+                        }
                     }}
                 >
                     <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -1713,7 +1722,7 @@ function SectionTitle({
     title,
     action,
 }: {
-    icon: any;
+    icon: LucideIcon;
     title: string;
     action?: React.ReactNode;
 }) {

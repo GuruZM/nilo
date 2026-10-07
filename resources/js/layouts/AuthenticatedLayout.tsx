@@ -1,3 +1,4 @@
+import { type SharedData } from '@/types/index.d';
 import { Head, Link, usePage } from '@inertiajs/react';
 import React from 'react';
 
@@ -7,7 +8,7 @@ type AuthenticatedLayoutProps = {
 };
 
 const AuthenticatedLayout = ({ title, children }: AuthenticatedLayoutProps) => {
-    const { auth } = usePage().props as any;
+    const { auth } = usePage<SharedData>().props;
     return (
         <div className="min-h-screen bg-gray-100">
             <Head title={title || 'Dashboard'} />

@@ -17,7 +17,7 @@ export default function InvoiceBuilder() {
 
     const addItem = () =>
         setItems([...items, { description: '', quantity: 1, price: 0 }]);
-    const updateItem = (idx: number, field: string, value: any) => {
+    const updateItem = (idx: number, field: string, value: string | number) => {
         setItems(
             items.map((item, i) =>
                 i === idx ? { ...item, [field]: value } : item,

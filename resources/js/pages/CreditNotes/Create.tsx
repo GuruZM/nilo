@@ -11,6 +11,7 @@ import {
     Plus,
     Receipt,
     Trash2,
+    type LucideIcon,
 } from 'lucide-react';
 import * as React from 'react';
 import { toast } from 'sonner';
@@ -77,7 +78,7 @@ const steps: {
     key: StepKey;
     title: string;
     description: string;
-    icon: any;
+    icon: LucideIcon;
 }[] = [
     {
         key: 'details',
@@ -316,9 +317,13 @@ export default function CreditNotesCreate({
         );
     };
 
-    const updateItem = (idx: number, key: string, value: any) => {
+    const updateItem = <K extends keyof (typeof form.data.items)[number]>(
+        idx: number,
+        key: K,
+        value: (typeof form.data.items)[number][K],
+    ) => {
         const next = [...form.data.items];
-        (next[idx] as any)[key] = value;
+        next[idx][key] = value;
         form.setData('items', next);
     };
 
@@ -526,7 +531,11 @@ export default function CreditNotesCreate({
                             return;
                         }
 
-                        step === 'review' ? submit() : goNext();
+                        if (step === 'review') {
+                            submit();
+                        } else {
+                            goNext();
+                        }
                     }}
                 >
                     <div className="grid grid-cols-1 gap-4 lg:grid-cols-12">
@@ -1600,7 +1609,13 @@ const reviewCellClass = cn(
  * The wizard's label/value shapes. Each is a thin arrangement over a shared
  * primitive, so the builder wears the same surfaces as the rest of the app.
  */
-function SectionTitle({ icon: Icon, title }: { icon: any; title: string }) {
+function SectionTitle({
+    icon: Icon,
+    title,
+}: {
+    icon: LucideIcon;
+    title: string;
+}) {
     return <PanelHeader icon={Icon} title={title} />;
 }
 

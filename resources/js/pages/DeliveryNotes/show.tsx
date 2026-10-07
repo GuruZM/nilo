@@ -24,7 +24,7 @@ import {
 } from '@/components/dashboard/primitives';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem } from '@/types/index.d';
+import { type BreadcrumbItem, type SharedData } from '@/types/index.d';
 
 /**
  * A delivery note line carries no price and no line amount — those columns do
@@ -92,7 +92,7 @@ export default function DeliveryNoteShow({
     deliveryNote: DeliveryNote;
     statuses: string[];
 }) {
-    const page = usePage() as any;
+    const page = usePage<SharedData>();
 
     React.useEffect(() => {
         const s = page.props?.flash?.success;

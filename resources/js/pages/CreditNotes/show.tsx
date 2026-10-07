@@ -24,7 +24,7 @@ import {
 import { Money } from '@/components/money';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
-import { type BreadcrumbItem } from '@/types/index.d';
+import { type BreadcrumbItem, type SharedData } from '@/types/index.d';
 
 type CreditNoteItem = {
     id: number;
@@ -86,7 +86,7 @@ export default function CreditNoteShow({
 }: {
     creditNote: CreditNote;
 }) {
-    const page = usePage() as any;
+    const page = usePage<SharedData>();
 
     React.useEffect(() => {
         const s = page.props?.flash?.success;

@@ -633,7 +633,11 @@ function ActivateCurrenciesPanel({ currencies }: { currencies: Currency[] }) {
     const toggle = (code: string) => {
         setSelected((prev) => {
             const next = new Set(prev);
-            next.has(code) ? next.delete(code) : next.add(code);
+            if (next.has(code)) {
+                next.delete(code);
+            } else {
+                next.add(code);
+            }
 
             return next;
         });
@@ -792,7 +796,7 @@ function CurrencyModal({
             code: form.data.code.trim().toUpperCase(),
         };
 
-        form.setData(payload as any);
+        form.setData(payload);
 
         if (mode === 'create') {
             form.post('/currencies', {
@@ -959,7 +963,7 @@ function CurrencyModal({
                                     </div>
                                     <Switch
                                         checked={!!form.data.is_active}
-                                        onCheckedChange={(v: any) =>
+                                        onCheckedChange={(v) =>
                                             form.setData('is_active', !!v)
                                         }
                                     />

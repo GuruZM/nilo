@@ -30,7 +30,7 @@ import {
 
 import AppLayout from '@/layouts/app-layout';
 import { dashboard } from '@/routes';
-import { type BreadcrumbItem } from '@/types/index.d';
+import { type BreadcrumbItem, type SharedData } from '@/types/index.d';
 import { toast } from 'sonner';
 
 import {
@@ -173,16 +173,17 @@ function compactAmount(n: number): string {
 }
 
 export default function Dashboard() {
-    const page = usePage() as any;
-    const { company, stats, charts, calendar, top_clients, fx } =
-        page.props as any as {
+    const page = usePage<
+        SharedData & {
             company: { id: number; name: string } | null;
             stats: DashboardStats | null;
             charts: Charts | null;
             calendar: CalendarEvent[];
             top_clients: TopClient[];
             fx: FxMeta | null;
-        };
+        }
+    >();
+    const { company, stats, charts, calendar, top_clients, fx } = page.props;
 
     // Show the welcome toast after a user verifies their email.
     React.useEffect(() => {
@@ -538,11 +539,7 @@ function PaidPendingCard({
                             </Pie>
                             <Tooltip
                                 contentStyle={TOOLTIP_STYLE}
-                                formatter={(
-                                    value: any,
-                                    name: any,
-                                    props: any,
-                                ) => {
+                                formatter={(value, name, props) => {
                                     const rev = props?.payload?.revenue ?? 0;
                                     return [
                                         `${value} • ${moneyText(rev)}`,
@@ -622,7 +619,7 @@ function MonthlyTrendCard({
                         />
                         <Tooltip
                             contentStyle={TOOLTIP_STYLE}
-                            formatter={(v: any, k: any) => [
+                            formatter={(v, k) => [
                                 moneyText(Number(v)),
                                 String(k).toUpperCase(),
                             ]}
