@@ -95,6 +95,12 @@ type TemplateModule = {
 
 type BuilderStep = 'preset' | 'style' | 'layout' | 'content' | 'review';
 
+/** A preset this company may build on; `exclusive` when it holds the design alone. */
+type PresetOption = {
+    id: TemplateSettings['preset'];
+    exclusive: boolean;
+};
+
 type FlashBag = {
     success?: string | null;
     error?: string | null;
@@ -264,10 +270,12 @@ export default function InvoiceTemplateBuilder({
     mode,
     template,
     module,
+    presets,
 }: {
     mode: Mode;
     template: TemplatePayload | null;
     module: TemplateModule;
+    presets: PresetOption[];
 }) {
     const page = usePage<BuilderPageProps>();
     const singularLabel = module.singularTitle.toLowerCase();
@@ -302,6 +310,15 @@ export default function InvoiceTemplateBuilder({
 
     const [step, setStep] = React.useState<BuilderStep>('preset');
 
+    const availablePresets = React.useMemo(
+        () =>
+            PRESETS.filter((p) => presets.some((option) => option.id === p.id)),
+        [presets],
+    );
+
+    const isExclusive = (presetId: TemplateSettings['preset']) =>
+        presets.some((option) => option.id === presetId && option.exclusive);
+
     const initialSettings: TemplateSettings = React.useMemo(() => {
         const s = template?.settings ?? null;
         if (!s) return DEFAULT_SETTINGS;
@@ -311,6 +328,11 @@ export default function InvoiceTemplateBuilder({
         return {
             ...DEFAULT_SETTINGS,
             ...s,
+            // A design that went exclusive to another company since this
+            // template was saved prints on the default, so edit it as that.
+            preset: presets.some((option) => option.id === s.preset)
+                ? s.preset
+                : DEFAULT_SETTINGS.preset,
             brand: {
                 ...brand,
                 // Templates saved before the header color existed drew the
@@ -324,7 +346,7 @@ export default function InvoiceTemplateBuilder({
             },
             content: { ...DEFAULT_SETTINGS.content, ...(s.content ?? {}) },
         };
-    }, [template]);
+    }, [template, presets]);
 
     const form = useForm<FormData>({
         name: template?.name ?? '',
@@ -343,6 +365,10 @@ export default function InvoiceTemplateBuilder({
     /** The server reports template-level failures under a key the form itself doesn't own. */
     const templateError = (form.errors as Record<string, string | undefined>)
         .template;
+
+    const presetError = (form.errors as Record<string, string | undefined>)[
+        'settings.preset'
+    ];
 
     const applyPreset = (presetId: TemplateSettings['preset']) => {
         const preset = PRESETS.find((p) => p.id === presetId);
@@ -604,7 +630,7 @@ export default function InvoiceTemplateBuilder({
                                         <div className="space-y-2">
                                             <Label>Preset</Label>
                                             <div className="grid grid-cols-1 gap-3">
-                                                {PRESETS.map((p) => {
+                                                {availablePresets.map((p) => {
                                                     const selected =
                                                         settings.preset ===
                                                         p.id;
@@ -635,14 +661,31 @@ export default function InvoiceTemplateBuilder({
                                                                         }
                                                                     </div>
                                                                 </div>
-                                                                {selected && (
-                                                                    <Check className="h-4 w-4 opacity-80" />
-                                                                )}
+                                                                <div className="flex shrink-0 items-center gap-2">
+                                                                    {isExclusive(
+                                                                        p.id,
+                                                                    ) && (
+                                                                        <Badge
+                                                                            variant="secondary"
+                                                                            className="rounded-full"
+                                                                        >
+                                                                            Exclusive
+                                                                        </Badge>
+                                                                    )}
+                                                                    {selected && (
+                                                                        <Check className="h-4 w-4 opacity-80" />
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                         </button>
                                                     );
                                                 })}
                                             </div>
+                                            {presetError && (
+                                                <p className="text-sm text-destructive">
+                                                    {presetError}
+                                                </p>
+                                            )}
                                         </div>
                                     </motion.div>
                                 )}
@@ -1154,6 +1197,12 @@ export default function InvoiceTemplateBuilder({
                                         {templateError && (
                                             <p className="text-sm text-destructive">
                                                 {templateError}
+                                            </p>
+                                        )}
+
+                                        {presetError && (
+                                            <p className="text-sm text-destructive">
+                                                {presetError}
                                             </p>
                                         )}
                                     </motion.div>

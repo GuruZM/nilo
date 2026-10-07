@@ -7,15 +7,14 @@ use App\Notifications\WelcomeVerifyEmail;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Notification;
 use Laravel\Socialite\Contracts\Provider;
-use Laravel\Socialite\Contracts\User as SocialiteUser;
 use Laravel\Socialite\Facades\Socialite;
+use Laravel\Socialite\Two\User as SocialiteTwoUser;
 
-function mockGoogleUser(string $id = 'google-123', string $email = 'google@example.com', string $name = 'Google User'): void
+function mockGoogleUser(string $id = 'google-123', ?string $email = 'google@example.com', string $name = 'Google User', bool $emailVerified = true): void
 {
-    $socialiteUser = Mockery::mock(SocialiteUser::class);
-    $socialiteUser->shouldReceive('getId')->andReturn($id);
-    $socialiteUser->shouldReceive('getEmail')->andReturn($email);
-    $socialiteUser->shouldReceive('getName')->andReturn($name);
+    $socialiteUser = (new SocialiteTwoUser)
+        ->setRaw(['sub' => $id, 'email' => $email, 'email_verified' => $emailVerified])
+        ->map(['id' => $id, 'email' => $email, 'name' => $name]);
 
     $provider = Mockery::mock(Provider::class);
     $provider->shouldReceive('user')->andReturn($socialiteUser);
@@ -210,4 +209,39 @@ test('oauth failure redirects back to login with an error', function () {
     $this->assertGuest();
     $response->assertRedirect(route('login'));
     $response->assertSessionHas('error');
+});
+
+test('an unverified google email cannot take over an existing password account', function () {
+    $owner = User::factory()->create(['email' => 'owner@example.com', 'google_id' => null]);
+
+    mockGoogleUser(id: 'google-attacker', email: 'owner@example.com', emailVerified: false);
+
+    $response = $this->withSession(['oauth_intent' => 'login'])->get(route('google.callback'));
+
+    $this->assertGuest();
+    $response->assertRedirect(route('login'));
+    $response->assertSessionHas('error');
+    expect($owner->fresh()->google_id)->toBeNull();
+});
+
+test('an unverified google email cannot register a new account', function () {
+    Plan::factory()->create(['slug' => 'free', 'price' => 0, 'is_active' => true]);
+
+    mockGoogleUser(id: 'google-unverified', email: 'unverified@example.com', emailVerified: false);
+
+    $response = $this->withSession(['oauth_intent' => 'register', 'oauth_terms' => true])->get(route('google.callback'));
+
+    $this->assertGuest();
+    $response->assertRedirect(route('login'));
+    expect(User::where('email', 'unverified@example.com')->exists())->toBeFalse();
+});
+
+test('a google identity without an email is turned away', function () {
+    mockGoogleUser(id: 'google-no-email', email: null);
+
+    $response = $this->withSession(['oauth_intent' => 'register', 'oauth_terms' => true])->get(route('google.callback'));
+
+    $this->assertGuest();
+    $response->assertRedirect(route('login'));
+    expect(User::where('google_id', 'google-no-email')->exists())->toBeFalse();
 });

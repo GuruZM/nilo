@@ -6,6 +6,7 @@ use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Schema;
+use RuntimeException;
 use Spatie\Permission\Models\Role;
 
 class SuperAdminSeeder extends Seeder
@@ -27,6 +28,10 @@ class SuperAdminSeeder extends Seeder
         $email = config('nilo.super_admin.email');
         $password = config('nilo.super_admin.password');
 
+        if (app()->isProduction()) {
+            $this->guardProductionCredentials($email, $password);
+        }
+
         $user = User::firstOrNew(['email' => $email]);
 
         $user->fill([
@@ -38,6 +43,24 @@ class SuperAdminSeeder extends Seeder
 
         $user->assignRole('super-admin');
 
-        $this->command?->info("Super admin ready: {$email} / {$password}");
+        $this->command?->info("Super admin ready: {$email}");
+    }
+
+    /**
+     * Refuse to mint a guessable super admin on a live server.
+     *
+     * The config falls back to admin@nilo.test / "password" so local setups
+     * work with no .env changes; in production that fallback would be an open
+     * door to /admin, so a missing or weak value stops the seed instead.
+     */
+    private function guardProductionCredentials(?string $email, ?string $password): void
+    {
+        if (blank($email) || $email === 'admin@nilo.test') {
+            throw new RuntimeException('Set NILO_SUPER_ADMIN_EMAIL in .env before seeding the super admin in production.');
+        }
+
+        if (blank($password) || $password === 'password' || strlen($password) < 12) {
+            throw new RuntimeException('Set NILO_SUPER_ADMIN_PASSWORD in .env to at least 12 characters (not "password") before seeding the super admin in production.');
+        }
     }
 }

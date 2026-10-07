@@ -26,7 +26,7 @@ class UpdateUserSubscriptionRequest extends FormRequest
     {
         return [
             'plan_id' => ['required', Rule::exists('plans', 'id')->where('is_active', true)],
-            'status' => 'required|in:active,pending_payment,cancelled,expired',
+            'status' => 'required|in:active,pending_payment,paused,cancelled,expired',
             'ends_at' => 'nullable|date',
         ];
     }

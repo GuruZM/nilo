@@ -74,10 +74,21 @@ class UserController extends Controller
             'status' => $validated['status'],
             'ends_at' => $validated['ends_at'] ?? null,
             'cancelled_at' => $validated['status'] === 'cancelled' ? now() : null,
+            'paused_at' => $validated['status'] === 'paused' ? now() : null,
         ];
 
         if ($current && $current->plan_id === $plan->id) {
-            $current->update($attributes);
+            $previousDueDate = $current->ends_at?->toDateString();
+            $current->fill($attributes);
+
+            // A new due date is a new period, and it deserves its own
+            // reminders rather than inheriting the last one's "already sent".
+            // Compared by day because the form only carries a date.
+            if ($current->ends_at?->toDateString() !== $previousDueDate) {
+                $current->fill(['reminder_stage' => null, 'reminder_sent_at' => null]);
+            }
+
+            $current->save();
 
             return back()->with('success', "The {$plan->name} subscription has been updated.");
         }

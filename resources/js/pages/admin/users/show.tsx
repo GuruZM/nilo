@@ -64,6 +64,7 @@ const methodLabel = (method: string): string => METHOD_LABELS[method] ?? method;
 const STATUS_OPTIONS = [
     { value: 'active', label: 'Active' },
     { value: 'pending_payment', label: 'Pending payment' },
+    { value: 'paused', label: 'Paused' },
     { value: 'cancelled', label: 'Cancelled' },
     { value: 'expired', label: 'Expired' },
 ] as const;

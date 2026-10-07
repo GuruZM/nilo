@@ -77,3 +77,61 @@ it('forbids the admin area to users without the role', function () {
         ->get(route('admin.dashboard'))
         ->assertForbidden();
 });
+
+it('refuses to seed guessable credentials in production', function (?string $email, ?string $password) {
+    $this->app->detectEnvironment(fn (): string => 'production');
+
+    config([
+        'nilo.super_admin.email' => $email,
+        'nilo.super_admin.password' => $password,
+    ]);
+
+    expect(fn () => app(SuperAdminSeeder::class)->run())->toThrow(RuntimeException::class);
+
+    expect(User::query()->whereHas('roles', fn ($query) => $query->where('name', 'super-admin'))->exists())->toBeFalse();
+})->with([
+    'default email' => ['admin@nilo.test', 'a-long-strong-passphrase'],
+    'missing email' => [null, 'a-long-strong-passphrase'],
+    'default password' => ['owner@resonantt.com', 'password'],
+    'missing password' => ['owner@resonantt.com', null],
+    'short password' => ['owner@resonantt.com', 'short-pass'],
+]);
+
+it('seeds the super admin in production when the credentials are set properly', function () {
+    $this->app->detectEnvironment(fn (): string => 'production');
+
+    config([
+        'nilo.super_admin.email' => 'owner@resonantt.com',
+        'nilo.super_admin.password' => 'a-long-strong-passphrase',
+    ]);
+
+    app(SuperAdminSeeder::class)->run();
+
+    $user = User::where('email', 'owner@resonantt.com')->first();
+
+    expect($user->hasRole('super-admin'))->toBeTrue()
+        ->and(Hash::check('a-long-strong-passphrase', $user->password))->toBeTrue();
+});
+
+it('promotes an existing account with that email instead of duplicating it', function () {
+    $existing = User::factory()->create(['email' => config('nilo.super_admin.email')]);
+
+    $this->seed(SuperAdminSeeder::class);
+
+    expect(User::where('email', $existing->email)->count())->toBe(1)
+        ->and($existing->fresh()->hasRole('super-admin'))->toBeTrue();
+});
+
+it('does not create the demo super admin when the full seeder runs in production', function () {
+    $this->app->detectEnvironment(fn (): string => 'production');
+
+    config([
+        'nilo.super_admin.email' => 'owner@resonantt.com',
+        'nilo.super_admin.password' => 'a-long-strong-passphrase',
+    ]);
+
+    app(\Database\Seeders\DatabaseSeeder::class)->run();
+
+    expect(User::where('email', 'test@example.com')->exists())->toBeFalse()
+        ->and(User::where('email', 'owner@resonantt.com')->first()->hasRole('super-admin'))->toBeTrue();
+});

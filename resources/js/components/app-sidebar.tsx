@@ -192,6 +192,11 @@ const adminNavItems: NavItem[] = [
         icon: TicketPercent,
     },
     {
+        title: 'Templates',
+        href: '/admin/templates',
+        icon: LayoutTemplate,
+    },
+    {
         title: 'Payments',
         href: '/admin/payments',
         icon: CreditCard,

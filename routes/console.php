@@ -25,6 +25,17 @@ Schedule::command('dpo:reconcile')
     ->withoutOverlapping();
 
 /**
+ * Reminds subscribers as their payment falls due and pauses whoever is still
+ * unpaid once the grace period ends. Hourly, so each reminder lands within an
+ * hour of its threshold — near the time of day the customer last paid — and
+ * the pause follows the cutoff closely. Access itself ends exactly on time
+ * regardless: Subscription::isActive() checks the grace period on its own.
+ */
+Schedule::command('subscriptions:check-renewals')
+    ->hourly()
+    ->withoutOverlapping();
+
+/**
  * Shared hosting has no supervisor, so cron drains the database queue: a
  * worker starts each minute, works until the queue is empty or 50 seconds
  * pass, then exits before the next one is due.

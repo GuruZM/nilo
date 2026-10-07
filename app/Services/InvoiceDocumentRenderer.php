@@ -2,9 +2,11 @@
 
 namespace App\Services;
 
+use App\Enums\TemplatePreset;
 use App\Models\Currency;
 use App\Models\Invoice;
 use App\Models\InvoiceTemplate;
+use App\Models\ProprietaryPreset;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\View;
 
@@ -87,6 +89,15 @@ class InvoiceDocumentRenderer
             $defaults['visibility'],
             array_map(fn ($v) => (bool) $v, (array) ($settings['visibility'] ?? []))
         );
+
+        /**
+         * A template saved before its preset went proprietary keeps the preset
+         * in its settings, so the lock is enforced here at print time as well
+         * as when saving.
+         */
+        if (in_array($settings['preset'], ProprietaryPreset::lockedFor($template?->company_id), true)) {
+            $settings['preset'] = TemplatePreset::fallback()->value;
+        }
 
         return $settings;
     }

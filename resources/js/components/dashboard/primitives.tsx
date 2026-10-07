@@ -6,6 +6,7 @@ import {
     ArrowUp,
     ArrowUpRight,
     CheckCircle2,
+    CirclePause,
     Clock3,
     FileText,
     PackageCheck,
@@ -478,6 +479,14 @@ const STATUS_TONES: Record<
     overdue: {
         className: 'bg-rose-500/10 text-rose-700 dark:text-rose-400',
         icon: AlertTriangle,
+    },
+    /**
+     * A subscription the renewal sweep stopped for non-payment. Amber like a
+     * wait, not rose like a cancellation: paying again brings it straight back.
+     */
+    paused: {
+        className: 'bg-amber-500/10 text-amber-700 dark:text-amber-400',
+        icon: CirclePause,
     },
     void: {
         className: 'bg-muted/60 text-muted-foreground dark:bg-white/5',

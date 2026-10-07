@@ -164,6 +164,12 @@ export default function Current({
 }: CurrentProps) {
     const plan = subscription?.plan;
     const isFree = plan ? parseFloat(plan.price) === 0 : false;
+    const isPaused = subscription?.status === 'paused';
+    /** Past the due date but still inside the grace period, so not yet paused. */
+    const isOverdue =
+        !isPaused &&
+        subscription?.ends_at != null &&
+        new Date(subscription.ends_at) < new Date();
 
     return (
         <AppLayout breadcrumbs={breadcrumbs}>
@@ -249,7 +255,9 @@ export default function Current({
                                             )}
                                         >
                                             <ArrowUpRight className="h-4 w-4" />
-                                            Upgrade
+                                            {isPaused || isOverdue
+                                                ? 'Renew'
+                                                : 'Upgrade'}
                                         </Link>
                                     )}
                                 </div>
@@ -284,7 +292,11 @@ export default function Current({
                                     />
                                     <FactTile
                                         icon={CalendarClock}
-                                        label="Next payment due"
+                                        label={
+                                            isPaused
+                                                ? 'Payment was due'
+                                                : 'Next payment due'
+                                        }
                                         value={
                                             subscription.ends_at
                                                 ? formatDate(
@@ -293,9 +305,13 @@ export default function Current({
                                                 : 'Does not expire'
                                         }
                                         note={
-                                            subscription.ends_at
-                                                ? 'No automatic renewal — pay again to continue.'
-                                                : undefined
+                                            isPaused
+                                                ? 'Paused — renew to resume.'
+                                                : isOverdue
+                                                  ? 'Overdue — pay now to avoid a pause.'
+                                                  : subscription.ends_at
+                                                    ? 'No automatic renewal — pay again to continue.'
+                                                    : undefined
                                         }
                                     />
                                 </div>

@@ -33,4 +33,13 @@ class SubscriptionFactory extends Factory
             'cancelled_at' => now(),
         ]);
     }
+
+    public function paused(): static
+    {
+        return $this->state(fn (array $attributes): array => [
+            'status' => 'paused',
+            'ends_at' => now()->subDays(2),
+            'paused_at' => now(),
+        ]);
+    }
 }

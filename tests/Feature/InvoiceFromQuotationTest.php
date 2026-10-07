@@ -1,9 +1,11 @@
 <?php
 
+use App\Mail\InvoiceToClient;
 use App\Models\Currency;
 use App\Models\Invoice;
 use App\Models\Quotation;
 use App\Models\QuotationItem;
+use Illuminate\Support\Facades\Mail;
 
 beforeEach(function () {
     Currency::firstOrCreate(['code' => 'ZMW'], [
@@ -20,9 +22,9 @@ beforeEach(function () {
  *
  * @return array{0: \App\Models\User, 1: \App\Models\Quotation}
  */
-function quotationToInvoice(string $status = 'sent'): array
+function quotationToInvoice(string $status = 'sent', ?string $clientEmail = 'client@example.com'): array
 {
-    [$user, $client, $template] = quotationCreationContext('client@example.com');
+    [$user, $client, $template] = quotationCreationContext($clientEmail);
 
     $quotation = Quotation::query()->create([
         'company_id' => $user->current_company_id,
@@ -157,6 +159,81 @@ it('dates the invoice today rather than from the quotation', function () {
 
     expect($invoice->issue_date->toDateString())->toBe(now()->toDateString())
         ->and($invoice->due_date->toDateString())->toBe(now()->toDateString());
+});
+
+/* ---------------------------- Emailing ---------------------------- */
+
+it('emails the new invoice to the client when asked to', function () {
+    Mail::fake();
+    [$user, $quotation] = quotationToInvoice();
+
+    $this->actingAs($user)
+        ->post("/quotations/{$quotation->id}/invoice", ['send_to_client' => true])
+        ->assertSessionHasNoErrors()
+        ->assertSessionHas('success', 'Invoice created and queued to client@example.com.');
+
+    Mail::assertQueued(
+        InvoiceToClient::class,
+        fn (InvoiceToClient $mail) => $mail->hasTo('client@example.com')
+            && $mail->invoice->is(Invoice::query()->latest('id')->first())
+    );
+
+    expect(Invoice::query()->latest('id')->first()->status)->toBe('sent');
+});
+
+it('does not email the client unless asked to', function (array $payload) {
+    Mail::fake();
+    [$user, $quotation] = quotationToInvoice();
+
+    $this->actingAs($user)
+        ->post("/quotations/{$quotation->id}/invoice", $payload)
+        ->assertSessionHas('success', 'Invoice INV-000001 created from QUO-000001.');
+
+    Mail::assertNothingQueued();
+    expect(Invoice::query()->latest('id')->first()->status)->toBe('pending');
+})->with([
+    'nothing sent' => [[]],
+    'toggle off' => [['send_to_client' => false]],
+]);
+
+it('still bills the quotation when the client has no email address', function () {
+    Mail::fake();
+    [$user, $quotation] = quotationToInvoice('sent', null);
+
+    $this->actingAs($user)
+        ->post("/quotations/{$quotation->id}/invoice", ['send_to_client' => true])
+        ->assertRedirect()
+        ->assertSessionHas('info');
+
+    Mail::assertNothingQueued();
+
+    expect(Invoice::query()->count())->toBe(1)
+        ->and(Invoice::query()->first()->status)->toBe('pending');
+});
+
+it('does not email anyone when the quotation was already billed', function () {
+    Mail::fake();
+    [$user, $quotation] = quotationToInvoice();
+
+    $this->actingAs($user)->post("/quotations/{$quotation->id}/invoice");
+
+    $this->actingAs($user)
+        ->post("/quotations/{$quotation->id}/invoice", ['send_to_client' => true])
+        ->assertSessionHas('info');
+
+    Mail::assertNothingQueued();
+});
+
+it('rejects a send flag that is not a boolean', function () {
+    Mail::fake();
+    [$user, $quotation] = quotationToInvoice();
+
+    $this->actingAs($user)
+        ->post("/quotations/{$quotation->id}/invoice", ['send_to_client' => 'please'])
+        ->assertSessionHasErrors('send_to_client');
+
+    Mail::assertNothingQueued();
+    expect(Invoice::query()->count())->toBe(0);
 });
 
 /* ---------------------------- Status ---------------------------- */

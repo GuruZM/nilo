@@ -133,3 +133,15 @@ it('renders for a user who has no plan at all', function () {
                 ->has('payments.data', 0)
         );
 });
+
+it('shows a paused plan rather than no plan at all', function () {
+    $user = dpoBuyer();
+    Subscription::factory()->paused()->create(['user_id' => $user->id, 'plan_id' => dpoPlan()->id]);
+
+    $this->actingAs($user)->get('/subscription')->assertInertia(
+        fn (AssertableInertia $page) => $page
+            ->where('subscription.status', 'paused')
+            ->where('subscription.plan.slug', 'standard')
+            ->whereNot('subscription.ends_at', null)
+    );
+});

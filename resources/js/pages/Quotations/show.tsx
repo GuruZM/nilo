@@ -19,6 +19,14 @@ import LimitNoticeDialog, {
     type LimitNotice,
 } from '@/components/limit-notice-dialog';
 import { Money } from '@/components/money';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
 import AppLayout from '@/layouts/app-layout';
 import { cn } from '@/lib/utils';
 import { type BreadcrumbItem, type SharedData } from '@/types/index.d';
@@ -113,13 +121,19 @@ export default function QuotationShow({
     };
 
     /**
-     * Bills this quotation and lands on the invoice.
+     * Bills this quotation and lands on the invoice, optionally emailing it
+     * to the client on the way.
      *
      * The server refuses a second invoice, so the worst a double-click can do
      * is land on the one that already exists — the latch is here to keep the
      * button from looking inert while the first request is in flight.
      */
     const [invoicing, setInvoicing] = React.useState(false);
+    const [confirmingInvoice, setConfirmingInvoice] = React.useState(false);
+    const [sendToClient, setSendToClient] = React.useState(false);
+
+    /** Only a client with an address on file can be emailed. */
+    const clientEmail = quotation.client?.email?.trim() || null;
 
     const createInvoice = () => {
         if (invoicing) {
@@ -128,7 +142,7 @@ export default function QuotationShow({
 
         router.post(
             `/quotations/${quotation.id}/invoice`,
-            {},
+            { send_to_client: !!clientEmail && sendToClient },
             {
                 onStart: () => setInvoicing(true),
                 onFinish: () => setInvoicing(false),
@@ -177,6 +191,81 @@ export default function QuotationShow({
 
             {/* Explains a plan cap that refused the invoice. */}
             <LimitNoticeDialog notice={limitNotice} />
+
+            <Dialog
+                open={confirmingInvoice}
+                onOpenChange={(open) =>
+                    !invoicing && setConfirmingInvoice(open)
+                }
+            >
+                <DialogContent className="rounded-2xl sm:max-w-md">
+                    <DialogHeader>
+                        <span className="mb-2 grid h-11 w-11 place-items-center rounded-2xl bg-brand-50 text-brand-600 dark:bg-brand-500/15 dark:text-brand-300">
+                            <Receipt className="h-6 w-6" />
+                        </span>
+
+                        <DialogTitle>Create invoice</DialogTitle>
+                        <DialogDescription>
+                            Bills everything on{' '}
+                            {quotation.number ?? 'this quotation'} as a new
+                            invoice, dated today.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <SoftTile className="flex items-center justify-between gap-3">
+                        <label
+                            htmlFor="send-invoice-to-client"
+                            className="min-w-0"
+                        >
+                            <div className="text-sm font-semibold">
+                                Email it to the client
+                            </div>
+                            <div className="truncate text-xs text-muted-foreground">
+                                {clientEmail ?? 'No email address on file'}
+                            </div>
+                        </label>
+                        <Switch
+                            id="send-invoice-to-client"
+                            checked={!!clientEmail && sendToClient}
+                            disabled={!clientEmail || invoicing}
+                            onCheckedChange={(v) => setSendToClient(!!v)}
+                        />
+                    </SoftTile>
+
+                    {!clientEmail ? (
+                        <p className="text-xs text-muted-foreground">
+                            {quotation.client?.name ?? 'This client'} has no
+                            email address, so the invoice can only be sent once
+                            one is added to the client.
+                        </p>
+                    ) : null}
+
+                    <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+                        <PillButton
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setConfirmingInvoice(false)}
+                            disabled={invoicing}
+                        >
+                            Cancel
+                        </PillButton>
+
+                        <PillButton
+                            variant="solid"
+                            size="sm"
+                            onClick={createInvoice}
+                            disabled={invoicing}
+                        >
+                            <Receipt className="h-4 w-4" />
+                            {invoicing
+                                ? 'Creating…'
+                                : clientEmail && sendToClient
+                                  ? 'Create and send'
+                                  : 'Create invoice'}
+                        </PillButton>
+                    </div>
+                </DialogContent>
+            </Dialog>
 
             <div className="mx-auto w-full py-3">
                 {/* Header */}
@@ -229,7 +318,7 @@ export default function QuotationShow({
                             <PillButton
                                 variant="solid"
                                 size="sm"
-                                onClick={createInvoice}
+                                onClick={() => setConfirmingInvoice(true)}
                                 disabled={invoicing}
                             >
                                 <Receipt className="h-4 w-4" />

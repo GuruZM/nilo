@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreQuotationInvoiceRequest;
 use App\Mail\QuotationToClient;
 use App\Models\Client;
 use App\Models\Company;
@@ -11,6 +12,7 @@ use App\Models\Quotation;
 use App\Services\DocumentPrerequisites;
 use App\Services\Documents\CreateInvoiceFromQuotation;
 use App\Services\Documents\CreateQuotation;
+use App\Services\Documents\SendInvoiceToClient;
 use App\Services\QuotationDocumentRenderer;
 use App\Services\SubscriptionLimitService;
 use App\Support\DocumentRules;
@@ -33,6 +35,7 @@ class QuotationController extends Controller
         private QuotationDocumentRenderer $documents,
         private CreateQuotation $creator,
         private CreateInvoiceFromQuotation $invoicer,
+        private SendInvoiceToClient $sender,
     ) {}
 
     private function resolveCompanyId(Request $request): ?int
@@ -517,7 +520,7 @@ class QuotationController extends Controller
      * shouting about — the second click is almost always an impatient one, so
      * it redirects to the invoice that already exists.
      */
-    public function storeInvoice(Request $request, Quotation $quotation): RedirectResponse
+    public function storeInvoice(StoreQuotationInvoiceRequest $request, Quotation $quotation): RedirectResponse
     {
         $companyId = $this->companyId($request);
 
@@ -540,9 +543,13 @@ class QuotationController extends Controller
 
         $invoice = $this->invoicer->handle($companyId, $user, $quotation);
 
+        $delivery = $request->boolean('send_to_client')
+            ? $this->sender->afterCreate($invoice, true)
+            : ['level' => 'success', 'message' => 'Invoice '.$invoice->number.' created from '.$quotation->number.'.'];
+
         return redirect()
             ->route('invoices.show', $invoice)
-            ->with('success', 'Invoice '.$invoice->number.' created from '.$quotation->number.'.');
+            ->with($delivery['level'], $delivery['message']);
     }
 
     public function updateStatus(Request $request, Quotation $quotation): RedirectResponse

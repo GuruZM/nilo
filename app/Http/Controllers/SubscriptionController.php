@@ -75,8 +75,13 @@ class SubscriptionController extends Controller
         $limiter = new SubscriptionLimitService($user);
         $plans = Plan::query()->publiclyAvailable()->get();
 
+        // A paused plan grants nothing, but its owner still needs to see what
+        // was paused and when it fell due, not a bare "No active plan".
+        $subscription = $user->activeSubscription
+            ?? $user->subscriptions()->where('status', 'paused')->latest('id')->first();
+
         return Inertia::render('subscription/current', [
-            'subscription' => $user->activeSubscription?->load('plan'),
+            'subscription' => $subscription?->load('plan'),
             'pendingSubscription' => $user->pendingSubscription?->load('plan'),
             'usage' => $limiter->usage(),
             'plans' => $plans,

@@ -80,6 +80,8 @@ Route::middleware(['auth', 'verified', 'admin'])->prefix('admin')->name('admin.'
     Route::post('/payments/{payment}/confirm', [\App\Http\Controllers\Admin\PaymentController::class, 'confirm'])->name('payments.confirm');
     Route::post('/payments/{payment}/reject', [\App\Http\Controllers\Admin\PaymentController::class, 'reject'])->name('payments.reject');
     Route::post('/payments/{payment}/verify', [\App\Http\Controllers\Admin\PaymentController::class, 'verify'])->name('payments.verify');
+    Route::get('/templates', [\App\Http\Controllers\Admin\TemplatePresetController::class, 'index'])->name('templates.index');
+    Route::put('/templates/{preset}', [\App\Http\Controllers\Admin\TemplatePresetController::class, 'update'])->name('templates.update');
     Route::get('/inquiries', [\App\Http\Controllers\Admin\InquiryController::class, 'index'])->name('inquiries.index');
     Route::post('/inquiries/{inquiry}/handle', [\App\Http\Controllers\Admin\InquiryController::class, 'handle'])->name('inquiries.handle');
 });

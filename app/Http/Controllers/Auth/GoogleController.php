@@ -8,6 +8,8 @@ use App\Services\Auth\GoogleAccountLinker;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Laravel\Socialite\AbstractUser;
+use Laravel\Socialite\Contracts\User as SocialiteUser;
 use Laravel\Socialite\Facades\Socialite;
 use Throwable;
 
@@ -51,6 +53,11 @@ class GoogleController extends Controller
                 ->with('error', 'Unable to sign in with Google. Please try again.');
         }
 
+        if (! $this->hasVerifiedEmail($googleUser)) {
+            return redirect()->route('login')
+                ->with('error', 'Your Google account email is not verified. Verify it with Google, or sign in with your password.');
+        }
+
         $existing = $this->accounts->find($googleUser->getId(), $googleUser->getEmail());
 
         if ($existing) {
@@ -79,5 +86,20 @@ class GoogleController extends Controller
 
         return redirect()->route('dashboard')
             ->with('success', 'Welcome to '.config('app.name').'! Your account is ready.');
+    }
+
+    /**
+     * Whether Google vouches for the email on this identity.
+     *
+     * Accounts are matched and auto-linked by email, so an unverified address
+     * would let a Google account claim a password account it does not own.
+     * Mirrors the `email_verified` check on the mobile ID-token exchange.
+     */
+    private function hasVerifiedEmail(SocialiteUser $googleUser): bool
+    {
+        $claims = $googleUser instanceof AbstractUser ? $googleUser->getRaw() : [];
+
+        return filled($googleUser->getEmail())
+            && filter_var($claims['email_verified'] ?? false, FILTER_VALIDATE_BOOLEAN);
     }
 }

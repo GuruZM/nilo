@@ -1,10 +1,9 @@
 import AppLogo from '@/components/app-logo';
-import { useAppearance } from '@/hooks/use-appearance';
 import { cn } from '@/lib/utils';
 import { dashboard, home, register } from '@/routes';
 import type { Auth } from '@/types';
 import { Link, usePage } from '@inertiajs/react';
-import { Menu, Moon, Sun, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 
 const sections = [
@@ -15,10 +14,8 @@ const sections = [
 
 export default function Nav() {
     const { auth } = usePage<{ auth?: Auth }>().props;
-    const { appearance, updateAppearance } = useAppearance();
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [scrolled, setScrolled] = useState(false);
-    const [isDark, setIsDark] = useState(false);
 
     useEffect(() => {
         const handleScroll = () => setScrolled(window.scrollY > 50);
@@ -26,12 +23,6 @@ export default function Nav() {
         window.addEventListener('scroll', handleScroll, { passive: true });
         return () => window.removeEventListener('scroll', handleScroll);
     }, []);
-
-    useEffect(() => {
-        setIsDark(document.documentElement.classList.contains('dark'));
-    }, [appearance]);
-
-    const toggleTheme = () => updateAppearance(isDark ? 'light' : 'dark');
 
     const onDark = !scrolled;
     const linkClass = onDark
@@ -91,23 +82,6 @@ export default function Nav() {
                                 Get started
                             </Link>
                         )}
-
-                        <button
-                            type="button"
-                            onClick={toggleTheme}
-                            aria-label={
-                                isDark
-                                    ? 'Switch to light mode'
-                                    : 'Switch to dark mode'
-                            }
-                            className={`cursor-pointer rounded-lg p-2 transition-colors duration-200 ${linkClass}`}
-                        >
-                            {isDark ? (
-                                <Sun className="h-5 w-5" />
-                            ) : (
-                                <Moon className="h-5 w-5" />
-                            )}
-                        </button>
                     </div>
 
                     <button
@@ -154,23 +128,6 @@ export default function Nav() {
                                         Get started
                                     </Link>
                                 )}
-
-                                <button
-                                    type="button"
-                                    onClick={toggleTheme}
-                                    aria-label={
-                                        isDark
-                                            ? 'Switch to light mode'
-                                            : 'Switch to dark mode'
-                                    }
-                                    className="cursor-pointer p-2 text-foreground/70 hover:text-foreground"
-                                >
-                                    {isDark ? (
-                                        <Sun className="h-5 w-5" />
-                                    ) : (
-                                        <Moon className="h-5 w-5" />
-                                    )}
-                                </button>
                             </div>
                         </div>
                     </div>

@@ -45,15 +45,16 @@ type PaymentMethod = 'mobile_money' | 'bank_transfer';
  */
 const MOBILE_MONEY_DETAILS = [
     { label: 'Provider', value: 'Airtel Money' },
-    { label: 'Account name', value: 'Nilo Technologies Ltd' },
-    { label: 'Number', value: '+260 77 078 5275' },
+    { label: 'Number', value: '+260770785275' },
 ];
 
 const BANK_DETAILS = [
-    { label: 'Bank', value: 'First National Bank' },
-    { label: 'Account name', value: 'Nilo Technologies Ltd' },
+    { label: 'Bank', value: 'First National Bank (FNB)' },
+    { label: 'Account name', value: 'Resonant Technologies' },
     { label: 'Account number', value: '63108067744' },
+    { label: 'Branch name', value: 'Acacia Park - Commercial Suite' },
     { label: 'Branch code', value: '260026' },
+    { label: 'SWIFT code', value: 'FIRNZMLX' },
 ];
 
 export default function Payment({

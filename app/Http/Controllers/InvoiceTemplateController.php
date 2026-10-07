@@ -2,11 +2,14 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\TemplatePreset;
 use App\Models\InvoiceTemplate;
+use App\Models\ProprietaryPreset;
 use App\Services\SubscriptionLimitService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
@@ -138,6 +141,7 @@ class InvoiceTemplateController extends Controller
                 'footer_html',
             ]),
             'module' => $this->templateModule($templateType),
+            'presets' => $this->presetOptions($companyId),
         ]);
     }
 
@@ -157,7 +161,7 @@ class InvoiceTemplateController extends Controller
         }
 
         try {
-            $data = $this->validateTemplateRequest($request);
+            $data = $this->validateTemplateRequest($request, $companyId);
             $settings = $this->normalizedSettings((array) ($data['settings'] ?? []));
             $isDefault = (bool) ($data['is_default'] ?? false);
 
@@ -220,7 +224,7 @@ class InvoiceTemplateController extends Controller
         }
 
         try {
-            $data = $this->validateTemplateRequest($request);
+            $data = $this->validateTemplateRequest($request, $companyId);
             $existing = is_array($template->settings) ? $template->settings : [];
             $incoming = (array) ($data['settings'] ?? []);
             $settings = $this->normalizedSettings($incoming, $existing);
@@ -306,16 +310,20 @@ class InvoiceTemplateController extends Controller
         return back()->with('success', 'Default '.$module['singularTitle'].' updated.');
     }
 
-    private function validateTemplateRequest(Request $request): array
+    private function validateTemplateRequest(Request $request, int $companyId): array
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:120'],
             'is_default' => ['sometimes', 'boolean'],
             'settings' => ['nullable', 'array'],
+            'settings.preset' => ['sometimes', 'bail', Rule::enum(TemplatePreset::class), Rule::notIn(ProprietaryPreset::lockedFor($companyId))],
             'settings.content.qr_url' => ['nullable', 'string', 'max:500'],
             'settings.content.tagline' => ['nullable', 'string', 'max:120'],
             'terms_html' => ['nullable', 'string'],
             'footer_html' => ['nullable', 'string'],
+        ], [
+            'settings.preset.enum' => 'Choose one of the available designs.',
+            'settings.preset.not_in' => 'That design is exclusive to another company.',
         ]);
 
         /**
@@ -325,6 +333,25 @@ class InvoiceTemplateController extends Controller
         $data['settings'] = $request->has('settings') ? (array) $request->input('settings') : null;
 
         return $data;
+    }
+
+    /**
+     * The presets this company may build on, flagging those it holds
+     * exclusively.
+     *
+     * @return list<array{id: string, exclusive: bool}>
+     */
+    private function presetOptions(int $companyId): array
+    {
+        $exclusive = ProprietaryPreset::query()
+            ->where('company_id', $companyId)
+            ->pluck('preset')
+            ->all();
+
+        return array_map(fn (TemplatePreset $preset): array => [
+            'id' => $preset->value,
+            'exclusive' => in_array($preset, $exclusive, true),
+        ], TemplatePreset::usableBy($companyId));
     }
 
     private function normalizedSettings(array $incomingSettings, array $existingSettings = []): array

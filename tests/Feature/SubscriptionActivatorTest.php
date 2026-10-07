@@ -158,3 +158,20 @@ it('starts a coupon-covered subscription with a zero-value payment on file', fun
 
     expect(CouponRedemption::count())->toBe(1);
 });
+
+it('brings a paused subscriber back when they pay again', function () {
+    $activator = app(SubscriptionActivator::class);
+    $user = dpoBuyer();
+    $plan = dpoPlan();
+    $paused = Subscription::factory()->paused()->create(['user_id' => $user->id, 'plan_id' => $plan->id]);
+    $payment = pendingDpoPayment($user, $plan);
+
+    $activator->activate($payment);
+
+    expect($paused->fresh())
+        ->status->toBe('cancelled')
+        ->cancelled_at->not->toBeNull();
+
+    expect($user->fresh()->hasActiveSubscription())->toBeTrue()
+        ->and($user->fresh()->activeSubscription->id)->toBe($payment->subscription_id);
+});

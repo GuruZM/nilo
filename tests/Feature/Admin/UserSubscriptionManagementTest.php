@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\SubscriptionReminder;
 use App\Models\Plan;
 use App\Models\Subscription;
 use App\Models\User;
@@ -221,7 +222,7 @@ it('rejects invalid subscription input', function (array $overrides, string $fie
 })->with([
     'missing plan' => [['plan_id' => null], 'plan_id'],
     'unknown plan' => [['plan_id' => 999999], 'plan_id'],
-    'unknown status' => [['status' => 'paused'], 'status'],
+    'unknown status' => [['status' => 'suspended'], 'status'],
     'nonsense expiry' => [['ends_at' => 'whenever'], 'ends_at'],
 ]);
 
@@ -249,4 +250,63 @@ it('keeps subscription editing behind the admin role', function () {
             'ends_at' => null,
         ])
         ->assertForbidden();
+});
+
+it('lets an admin pause a subscription', function () {
+    $user = User::factory()->create();
+    $plan = Plan::factory()->create();
+    $existing = Subscription::factory()->create([
+        'user_id' => $user->id,
+        'plan_id' => $plan->id,
+        'ends_at' => now()->addWeek(),
+    ]);
+
+    $this->actingAs(subscriptionAdmin())
+        ->post(route('admin.users.subscription.update', $user), [
+            'plan_id' => $plan->id,
+            'status' => 'paused',
+            'ends_at' => $existing->ends_at->toDateString(),
+        ])
+        ->assertSessionHasNoErrors();
+
+    expect($existing->fresh())
+        ->status->toBe('paused')
+        ->paused_at->not->toBeNull();
+});
+
+/**
+ * Extending the due date starts a new period, which earns its own reminders.
+ * Saving the same date keeps the record of what was already sent.
+ */
+it('resets payment reminders only when the due date moves', function () {
+    $user = User::factory()->create();
+    $plan = Plan::factory()->create();
+    $existing = Subscription::factory()->create([
+        'user_id' => $user->id,
+        'plan_id' => $plan->id,
+        'ends_at' => now()->addHours(12),
+        'reminder_stage' => SubscriptionReminder::DueTomorrow,
+        'reminder_sent_at' => now(),
+    ]);
+
+    $this->actingAs(subscriptionAdmin())
+        ->post(route('admin.users.subscription.update', $user), [
+            'plan_id' => $plan->id,
+            'status' => 'active',
+            'ends_at' => $existing->ends_at->toDateString(),
+        ]);
+
+    expect($existing->fresh()->reminder_stage)->toBe(SubscriptionReminder::DueTomorrow);
+
+    $this->actingAs(subscriptionAdmin())
+        ->post(route('admin.users.subscription.update', $user), [
+            'plan_id' => $plan->id,
+            'status' => 'active',
+            'ends_at' => now()->addMonth()->toDateString(),
+        ]);
+
+    expect($existing->fresh())
+        ->reminder_stage->toBeNull()
+        ->reminder_sent_at->toBeNull()
+        ->paused_at->toBeNull();
 });

@@ -28,6 +28,10 @@ class DatabaseSeeder extends Seeder
             ]);
         }
 
+        if (app()->isProduction()) {
+            return;
+        }
+
         $user = User::firstOrCreate(
             ['email' => 'test@example.com'],
             [

@@ -138,14 +138,15 @@ class SubscriptionActivator
      * An upgrade bought while a plan was still running leaves two active rows
      * behind — the one still being served and the one just paid for. The paid
      * one wins, and the other is cancelled here so User::activeSubscription()
-     * never has to choose between them.
+     * never has to choose between them. A paused row goes the same way: paying
+     * again is how a paused customer comes back.
      */
     private function supersede(Subscription $subscription, CarbonInterface $at): void
     {
         Subscription::query()
             ->where('user_id', $subscription->user_id)
             ->whereKeyNot($subscription->getKey())
-            ->where('status', 'active')
+            ->whereIn('status', ['active', 'paused'])
             ->update([
                 'status' => 'cancelled',
                 'cancelled_at' => $at,
