@@ -11,22 +11,53 @@ use Inertia\Inertia;
 class ClientController extends Controller
 {
     /**
+     * The same company the document builders read clients from, so a client
+     * added here is the one their pickers list.
+     */
+    private function resolveCompanyId(Request $request): ?int
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return null;
+        }
+
+        $companyId = (int) ($user->current_company_id ?? 0);
+
+        if ($companyId && $user->isMemberOfCompany($companyId)) {
+            return $companyId;
+        }
+
+        $fallbackCompanyId = (int) ($user->companies()
+            ->orderBy('companies.name')
+            ->value('companies.id') ?? 0);
+
+        if ($fallbackCompanyId) {
+            $user->forceFill(['current_company_id' => $fallbackCompanyId])->save();
+        }
+
+        return $fallbackCompanyId ?: null;
+    }
+
+    private function companyId(Request $request): int
+    {
+        $companyId = $this->resolveCompanyId($request);
+
+        if (! $companyId) {
+            throw ValidationException::withMessages([
+                'company_id' => 'No active company selected. Please select a company first.',
+            ]);
+        }
+
+        return $companyId;
+    }
+
+    /**
      * Display a listing of the clients (scoped to active company).
      */
     public function index(Request $request)
     {
-        $user = $request->user();
-
-        // ✅ Active company, falling back to the first one the user belongs to
-        $companyId = (int) ($user->current_company_id ?? 0);
-
-        if (! $companyId) {
-            $companyId = (int) ($user->companies()->value('companies.id') ?? 0);
-
-            if ($companyId) {
-                $user->forceFill(['current_company_id' => $companyId])->save();
-            }
-        }
+        $companyId = $this->resolveCompanyId($request);
 
         // ✅ A GET must render, not redirect back — show the empty state instead
         if (! $companyId) {
@@ -67,12 +98,7 @@ class ClientController extends Controller
     {
         $user = $request->user();
 
-        $companyId = (int) ($user->current_company_id ?? 0);
-        if (! $companyId) {
-            throw ValidationException::withMessages([
-                'company_id' => 'No active company selected. Please select a company first.',
-            ]);
-        }
+        $companyId = $this->companyId($request);
 
         try {
             $data = $request->validate([
@@ -128,12 +154,7 @@ class ClientController extends Controller
     {
         $user = $request->user();
 
-        $companyId = (int) ($user->current_company_id ?? 0);
-        if (! $companyId) {
-            throw ValidationException::withMessages([
-                'company_id' => 'No active company selected. Please select a company first.',
-            ]);
-        }
+        $companyId = $this->companyId($request);
 
         $clientModel = Client::where('company_id', $companyId)->where('id', $client)->first();
         if (! $clientModel) {
@@ -192,12 +213,7 @@ class ClientController extends Controller
     {
         $user = $request->user();
 
-        $companyId = (int) ($user->current_company_id ?? 0);
-        if (! $companyId) {
-            throw ValidationException::withMessages([
-                'company_id' => 'No active company selected. Please select a company first.',
-            ]);
-        }
+        $companyId = $this->companyId($request);
 
         $clientModel = Client::where('company_id', $companyId)->where('id', $client)->first();
         if (! $clientModel) {

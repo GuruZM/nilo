@@ -28,6 +28,7 @@ import LimitNoticeDialog, {
 } from '@/components/limit-notice-dialog';
 import NiloSpinner from '@/components/nilo-spinner';
 import RequiredHand from '@/components/required-hand';
+import { useFreshProps } from '@/hooks/use-fresh-props';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types/index.d';
 
@@ -147,6 +148,13 @@ export default function QuotationsCreate({
     hasActiveCompany?: boolean;
     limitNotice?: LimitNotice | null;
 }) {
+    useFreshProps([
+        'clients',
+        'templates',
+        'prerequisites',
+        'hasActiveCompany',
+    ]);
+
     const currencyList = currencies?.all ?? [];
     const activeCurrency = currencies?.current ?? null;
     const hasClients = clients.length > 0;

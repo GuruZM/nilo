@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 
 import NiloSpinner from '@/components/nilo-spinner';
 import RequiredHand from '@/components/required-hand';
+import { useFreshProps } from '@/hooks/use-fresh-props';
 import AppLayout from '@/layouts/app-layout';
 import { type BreadcrumbItem } from '@/types/index.d';
 
@@ -130,6 +131,8 @@ export default function CreditNotesCreate({
     currencies?: { all: Currency[]; current: Currency | null };
     hasActiveCompany?: boolean;
 }) {
+    useFreshProps(['invoices']);
+
     const currencyList = currencies?.all ?? [];
     const activeCurrency = currencies?.current ?? null;
     const hasInvoices = invoices.length > 0;

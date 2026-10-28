@@ -16,6 +16,7 @@ import {
     fieldInputClass,
     pillButtonClass,
 } from '@/components/dashboard/primitives';
+import { useFreshProps } from '@/hooks/use-fresh-props';
 import AppLayout from '@/layouts/app-layout';
 import { formatMoney } from '@/lib/money';
 import { type BreadcrumbItem } from '@/types/index.d';
@@ -64,6 +65,8 @@ export default function ReceiptsCreate({
     paymentMethods: PaymentMethod[];
     hasActiveCompany?: boolean;
 }) {
+    useFreshProps(['clients']);
+
     const { currencies, flash } = usePage<{
         currencies?: { all: Currency[]; current: Currency | null } | null;
         flash?: { error?: string | null; info?: string | null };
